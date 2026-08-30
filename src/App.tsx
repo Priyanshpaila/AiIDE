@@ -49,20 +49,14 @@ function App() {
       const saved = localStorage.getItem("voiceide_tabs");
       if (saved) return JSON.parse(saved);
     } catch (e) {}
-    return [{
-      id: "scratch-1",
-      name: "scratch.py",
-      path: "",
-      content: "",
-      lang: "python"
-    }];
+    return [];
   });
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     try {
       const saved = localStorage.getItem("voiceide_active_tab");
       if (saved) return JSON.parse(saved);
     } catch (e) {}
-    return "scratch-1";
+    return "";
   });
   const [showDiff, setShowDiff] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -73,6 +67,32 @@ function App() {
   const [problems, setProblems] = useState<monaco.editor.IMarker[]>([]);
   const [outputLogs, setOutputLogs] = useState<string[]>(["VoiceIDE Output initialized..."]);
   const [debugLogs, setDebugLogs] = useState<string[]>(["VoiceIDE Debug Console ready..."]);
+
+  // Multiple Terminals
+  const [terminals, setTerminals] = useState<{id: string, name: string}[]>([{ id: "term-1", name: "1: Terminal" }]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string>("term-1");
+  const terminalRefs = useRef<Record<string, XTerm>>({});
+
+  const getActiveTerminal = () => terminalRefs.current[activeTerminalId];
+
+  const createNewTerminal = () => {
+    const newId = `term-${Date.now()}`;
+    const newName = `${terminals.length + 1}: Node`;
+    setTerminals(prev => [...prev, { id: newId, name: newName }]);
+    setActiveTerminalId(newId);
+    setActiveBottomTab("terminal");
+  };
+
+  const deleteTerminal = () => {
+    setTerminals(prev => {
+      const filtered = prev.filter(t => t.id !== activeTerminalId);
+      if (filtered.length > 0) {
+        setActiveTerminalId(filtered[filtered.length - 1].id);
+      }
+      return filtered.length > 0 ? filtered : [{ id: `term-${Date.now()}`, name: "1: Terminal" }];
+    });
+    delete terminalRefs.current[activeTerminalId];
+  };
 
   useEffect(() => {
     const disposable = monaco.editor.onDidChangeMarkers(() => {
@@ -87,15 +107,15 @@ function App() {
     const originalWarn = console.warn;
     
     console.log = (...args) => {
-      setDebugLogs(prev => [...prev, `[LOG] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" ")}`]);
+      setDebugLogs(prev => [...prev, `[LOG] ${args.map(a => a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : a)).join(" ")}`]);
       originalLog(...args);
     };
     console.error = (...args) => {
-      setDebugLogs(prev => [...prev, `[ERR] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" ")}`]);
+      setDebugLogs(prev => [...prev, `[ERR] ${args.map(a => a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : a)).join(" ")}`]);
       originalError(...args);
     };
     console.warn = (...args) => {
-      setDebugLogs(prev => [...prev, `[WARN] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" ")}`]);
+      setDebugLogs(prev => [...prev, `[WARN] ${args.map(a => a instanceof Error ? a.message : (typeof a === 'object' ? JSON.stringify(a) : a)).join(" ")}`]);
       originalWarn(...args);
     };
     
@@ -117,7 +137,7 @@ function App() {
     localStorage.setItem("voiceide_active_folder", JSON.stringify(activeFolderPath));
   }, [folderPaths, tabs, activeTabId, activeFolderPath]);
   
-  const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
+  const activeTab = tabs.find(t => t.id === activeTabId) || (tabs.length > 0 ? tabs[0] : undefined);
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -262,7 +282,7 @@ function App() {
   );
 
   const handleDebug = async () => {
-    if (!activeTab.content.trim()) return;
+    if (!activeTab || !activeTab.content.trim()) return;
     setActiveBottomTab("output");
     appendOutput(`Starting AI Debug process for ${activeTab.name}...`);
     const sysPrompt = "You are an expert debugger. Fix any errors or logical bugs in the provided code. Output ONLY the raw corrected code wrapped in a markdown code block (e.g. ```python). Keep the same language. Ensure the output runs flawlessly.";
@@ -271,7 +291,7 @@ function App() {
   };
 
   const handleOptimize = async () => {
-    if (!activeTab.content.trim()) return;
+    if (!activeTab || !activeTab.content.trim()) return;
     setActiveBottomTab("output");
     appendOutput(`Starting AI Optimization process for ${activeTab.name}...`);
     const sysPrompt = "You are an expert performance optimizer. Rewrite the provided code to be significantly more efficient (e.g., O(1) instead of O(n^2)) while maintaining the exact same logic and functionality. Output ONLY the raw optimized code wrapped in a markdown code block. Keep the same language.";
@@ -280,7 +300,7 @@ function App() {
   };
 
   const handleTranslate = async () => {
-    if (!activeTab.content.trim()) return;
+    if (!activeTab || !activeTab.content.trim()) return;
     const targetLang = prompt("Enter target programming language (e.g., c++, python, rust):");
     if (!targetLang) return;
     
@@ -292,7 +312,7 @@ function App() {
   };
 
   const handleDocumentation = async () => {
-    if (folderPaths.length === 0 && !activeTab.content.trim()) {
+    if (folderPaths.length === 0 && (!activeTab || !activeTab.content.trim())) {
       alert("Please open a folder or write some code to generate documentation.");
       return;
     }
@@ -300,8 +320,8 @@ function App() {
     setActiveBottomTab("output");
     appendOutput(`Initializing Documentation generation...`);
     
-    if (terminalRef.current) {
-      terminalRef.current.writeln(`\r\n\x1b[1;36m> Generating project documentation...\x1b[0m`);
+    if (getActiveTerminal()) {
+      getActiveTerminal().writeln(`\r\n\x1b[1;36m> Generating project documentation...\x1b[0m`);
     }
     
     let combinedCode = "";
@@ -426,10 +446,11 @@ function App() {
   const handleRun = async () => {
     setActiveBottomTab("terminal");
     appendOutput(`Executing ${activeTab.lang} script...`);
-    if (terminalRef.current) {
-      const term = terminalRef.current;
+    if (getActiveTerminal()) {
+      const term = getActiveTerminal();
       term.writeln(`\x1b[1;33m> Executing ${activeTab.lang} script...\x1b[0m`);
       
+      if (!activeTab) return;
       let code = activeTab.content;
       
       try {
@@ -645,46 +666,65 @@ function App() {
         {/* EDITOR & TERMINAL */}
         <div className="editor-terminal-split">
           <div className="editor-pane">
-            <div className="breadcrumb">
-              project &gt; {activeTab.path || activeTab.name}
-            </div>
-            <div className="editor-wrapper">
-              <div style={{ display: showDiff ? "block" : "none", height: "100%" }}>
-                 <DiffEditor
-                   height="100%"
-                   language={activeTab.lang}
-                   original={activeTab.content}
-                   modified={streamBufferRef.current}
-                   theme="vs-dark"
-                   onMount={handleDiffEditorDidMount}
-                   options={{
-                     minimap: { enabled: false },
-                     automaticLayout: true,
-                     fontSize: 14,
-                     lineHeight: 24,
-                     padding: { top: 16 }
-                   }}
-                 />
+            {activeTab ? (
+              <>
+                <div className="breadcrumb">
+                  project &gt; {activeTab.path || activeTab.name}
+                </div>
+                <div className="editor-wrapper">
+                  <div style={{ display: showDiff ? "block" : "none", height: "100%" }}>
+                     <DiffEditor
+                       height="100%"
+                       language={activeTab.lang}
+                       original={activeTab.content}
+                       modified={streamBufferRef.current}
+                       theme="vs-dark"
+                       onMount={handleDiffEditorDidMount}
+                       options={{
+                         minimap: { enabled: false },
+                         automaticLayout: true,
+                         fontSize: 14,
+                         lineHeight: 24,
+                         padding: { top: 16 }
+                       }}
+                     />
+                  </div>
+                  <div style={{ display: showDiff ? "none" : "block", height: "100%" }}>
+                     <Editor
+                       height="100%"
+                       language={activeTab.lang}
+                       value={activeTab.content}
+                       onChange={handleEditorChange}
+                       theme="vs-dark"
+                       onMount={handleEditorDidMount}
+                       options={{
+                         minimap: { enabled: false },
+                         automaticLayout: true,
+                         fontSize: 14,
+                         wordWrap: "on",
+                         lineHeight: 24,
+                         padding: { top: 16 }
+                       }}
+                     />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="welcome-screen">
+                <div className="welcome-content">
+                  <h1 className="welcome-title">VoiceIDE</h1>
+                  <p className="welcome-subtitle">Advanced AI Coding Environment</p>
+                  <div className="welcome-actions">
+                    <button className="welcome-btn" onClick={openNewFileModal}>
+                      <Plus size={16} /> New File
+                    </button>
+                    <button className="welcome-btn" onClick={handleOpenFolder}>
+                      <FolderOpen size={16} /> Open Folder
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: showDiff ? "none" : "block", height: "100%" }}>
-                 <Editor
-                   height="100%"
-                   language={activeTab.lang}
-                   value={activeTab.content}
-                   onChange={handleEditorChange}
-                   theme="vs-dark"
-                   onMount={handleEditorDidMount}
-                   options={{
-                     minimap: { enabled: false },
-                     automaticLayout: true,
-                     fontSize: 14,
-                     wordWrap: "on",
-                     lineHeight: 24,
-                     padding: { top: 16 }
-                   }}
-                 />
-              </div>
-            </div>
+            )}
           </div>
           
           <div className="terminal-pane">
@@ -716,17 +756,32 @@ function App() {
                 </div>
               </div>
               <div className="terminal-actions">
-                <span className="term-dropdown">1: Node <ChevronDown size={12} style={{marginLeft: 4}} /></span>
-                <Plus size={14} className="term-icon" />
+                <div className="terminal-dropdown-container">
+                  <select 
+                    className="term-dropdown-select"
+                    value={activeTerminalId}
+                    onChange={(e) => {
+                       setActiveTerminalId(e.target.value);
+                       setActiveBottomTab("terminal");
+                    }}
+                  >
+                    {terminals.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <Plus size={14} className="term-icon" onClick={createNewTerminal} title="New Terminal" />
                 <TerminalSquare size={14} className="term-icon" />
-                <Minus size={14} className="term-icon" />
+                <Minus size={14} className="term-icon" onClick={deleteTerminal} title="Kill Terminal" />
                 <X size={14} className="term-icon" />
               </div>
             </div>
             <div className="terminal-content">
               {/* TERMINAL */}
               <div style={{ display: activeBottomTab === "terminal" ? "block" : "none", height: "100%" }}>
-                <TerminalComponent onRef={(term) => (terminalRef.current = term)} />
+                {terminals.map(term => (
+                   <div key={term.id} style={{ display: activeTerminalId === term.id ? "block" : "none", height: "100%" }}>
+                     <TerminalComponent onRef={(t) => (terminalRefs.current[term.id] = t)} />
+                   </div>
+                ))}
               </div>
               
               {/* PROBLEMS */}
@@ -808,3 +863,7 @@ function App() {
 }
 
 export default App;
+
+
+
+

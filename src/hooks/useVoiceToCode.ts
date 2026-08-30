@@ -59,7 +59,7 @@ export async function streamAIPrompt(
     let i = 0;
     const interval = setInterval(() => {
       if (i < mockCode.length) {
-        onCodeGenerated(mockCode[i]);
+        onCodeGenerated(mockCode[i], false, i === 0);
         i++;
       } else {
         clearInterval(interval);
@@ -192,7 +192,7 @@ export function useVoiceToCode(
       let i = 0;
       const interval = setInterval(() => {
         if (i < mockCode.length) {
-          onCodeGenerated(mockCode[i]);
+          onCodeGenerated(mockCode[i], false, i === 0);
           i++;
         } else {
           clearInterval(interval);
@@ -216,3 +216,4 @@ export function useVoiceToCode(
     toggleRecording,
   };
 }
+

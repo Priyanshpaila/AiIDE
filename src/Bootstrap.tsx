@@ -22,26 +22,6 @@ export default function Bootstrap({ onBootstrapped }: Props) {
   useEffect(() => {
     async function bootstrap() {
       try {
-        // Detect if we're running inside Tauri by checking for the IPC object
-        // @ts-ignore
-        const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
-        
-        if (!isTauri) {
-          setStatus("Browser Detected: Mocking AI model downloads...");
-          setProgress(0);
-          
-          // Mock download progress for browser
-          for (let i = 0; i <= 100; i += 20) {
-            setProgress(i);
-            await new Promise(res => setTimeout(res, 500));
-          }
-          
-          setStatus("Browser Detected: Mocking AI Servers...");
-          await new Promise(res => setTimeout(res, 1000));
-          onBootstrapped();
-          return;
-        }
-
         const appData = await appDataDir();
         // Ensure app data dir exists
         const dirExists = await exists(appData);
@@ -100,3 +80,4 @@ export default function Bootstrap({ onBootstrapped }: Props) {
     </div>
   );
 }
+

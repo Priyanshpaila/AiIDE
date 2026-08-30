@@ -10,6 +10,26 @@
     "fs:read-all",
     "fs:write-all",
     "fs:scope-appdata-recursive",
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [{ "path": "**" }, { "path": "*/**" }, { "path": "*:\\**" }, { "path": "**\\*" }, { "path": "\\\\?\\**" }]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "**" }, { "path": "*/**" }, { "path": "*:\\**" }, { "path": "**\\*" }, { "path": "\\\\?\\**" }]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "**" }, { "path": "*/**" }, { "path": "*:\\**" }, { "path": "**\\*" }, { "path": "\\\\?\\**" }]
+    },
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "**" }, { "path": "*/**" }, { "path": "*:\\**" }, { "path": "**\\*" }, { "path": "\\\\?\\**" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "**" }, { "path": "*/**" }, { "path": "*:\\**" }, { "path": "**\\*" }, { "path": "\\\\?\\**" }]
+    },
     "upload:default",
     "dialog:default",
     {
