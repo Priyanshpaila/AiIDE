@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
-import { FileJson, FileCode, FileText, FileImage, FileTerminal, FileType, Folder, FolderOpen } from "lucide-react";
+import { FileJson, FileCode, FileText, FileImage, FileTerminal, FileType, Folder, FolderOpen, X } from "lucide-react";
 import "./FileTree.css";
 
 interface Props {
@@ -35,7 +35,7 @@ function getFileIconInfo(filename: string) {
   }
 }
 
-export default function FileTree({ path, onFileClick, isRoot = true, refreshTrigger = 0, startsExpanded = false }: Props) {
+export default function FileTree({ path, onFileClick, isRoot = true, refreshTrigger = 0, startsExpanded = false, onCloseFolder }: Props) {
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [expanded, setExpanded] = useState<boolean>(isRoot || startsExpanded);
   const [loading, setLoading] = useState<boolean>(false);
@@ -88,11 +88,23 @@ export default function FileTree({ path, onFileClick, isRoot = true, refreshTrig
 
   return (
     <div className="file-tree-node">
-      <div className="file-tree-label" onClick={toggleExpand}>
-        <span className="icon" style={{display: 'flex', alignItems: 'center', color: '#c8ff00'}}>
-          {expanded ? <FolderOpen size={14} /> : <Folder size={14} />}
-        </span>
-        {name}
+      <div className="file-tree-label" onClick={toggleExpand} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span className="icon" style={{display: 'flex', alignItems: 'center', color: '#c8ff00'}}>
+            {expanded ? <FolderOpen size={14} /> : <Folder size={14} />}
+          </span>
+          {name}
+        </div>
+        {onCloseFolder && (
+          <span 
+             className="close-folder-icon"
+             onClick={(e) => { e.stopPropagation(); onCloseFolder(); }}
+             style={{ opacity: 0.7, padding: '2px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+             title="Close Folder"
+          >
+             <X size={14} />
+          </span>
+        )}
       </div>
       {expanded && (
         <div className="file-tree-children">
@@ -131,3 +143,5 @@ function FileTreeNode({ entry, parentPath, onFileClick, refreshTrigger }: { entr
     </div>
   );
 }
+
+

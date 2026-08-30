@@ -14,7 +14,7 @@ import { readTextFile } from "@tauri-apps/plugin-fs";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { 
   Play, Mic, FolderOpen, Settings, Bell, 
-  ChevronDown, Search, Plus, TerminalSquare, 
+  ChevronDown, ChevronUp, Search, Plus, TerminalSquare, 
   Bug, Zap, Languages, BookOpen, Minus, X
 } from "lucide-react";
 import "./App.css";
@@ -63,6 +63,7 @@ function App() {
   const [showNewFileModal, setShowNewFileModal] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   
+  const [isTerminalVisible, setIsTerminalVisible] = useState(true);
   const [activeBottomTab, setActiveBottomTab] = useState<"problems"|"output"|"terminal"|"debug">("terminal");
   const [problems, setProblems] = useState<monaco.editor.IMarker[]>([]);
   const [outputLogs, setOutputLogs] = useState<string[]>(["VoiceIDE Output initialized..."]);
@@ -211,13 +212,11 @@ function App() {
   const closeTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newTabs = tabs.filter(t => t.id !== id);
+    setTabs(newTabs);
     if (newTabs.length === 0) {
-      const defaultTab = { id: "scratch-1", name: "scratch.py", path: "", content: "", lang: "python" };
-      setTabs([defaultTab]);
-      setActiveTabId("scratch-1");
-    } else {
-      setTabs(newTabs);
-      if (activeTabId === id) setActiveTabId(newTabs[newTabs.length - 1].id);
+      setActiveTabId("");
+    } else if (activeTabId === id) {
+      setActiveTabId(newTabs[newTabs.length - 1].id);
     }
   };
 
@@ -400,6 +399,7 @@ function App() {
     });
   };
 
+  const handleCloseFolder = (pathToClose: string) => { setFolderPaths(prev => { const filtered = prev.filter(p => p !== pathToClose); if (activeFolderPath === pathToClose) { setActiveFolderPath(filtered.length > 0 ? filtered[0] : null); } return filtered; }); };
   const handleOpenFolder = async () => {
     const selected = await open({ directory: true, multiple: true });
     if (selected) {
@@ -567,26 +567,26 @@ function App() {
           </div>
           <div className="toolbar-actions">
             <button className="action-btn" onClick={handleRun}>
-              <Play size={12} style={{marginRight: 6}} /> Run Code
+              <Play size={14} className="action-icon" /> <span className="action-text">Run Code</span>
             </button>
             <button className="action-btn" onClick={handleDebug}>
-              <Bug size={12} style={{marginRight: 6}} /> Debug
+              <Bug size={14} className="action-icon" /> <span className="action-text">Debug</span>
             </button>
             <button className="action-btn" onClick={handleOptimize}>
-              <Zap size={12} style={{marginRight: 6}} /> Optimize
+              <Zap size={14} className="action-icon" /> <span className="action-text">Optimize</span>
             </button>
             <button className="action-btn" onClick={handleTranslate}>
-              <Languages size={12} style={{marginRight: 6}} /> Translate
+              <Languages size={14} className="action-icon" /> <span className="action-text">Translate</span>
             </button>
             <button className="action-btn" onClick={handleDocumentation}>
-              <BookOpen size={12} style={{marginRight: 6}} /> Documentation
+              <BookOpen size={14} className="action-icon" /> <span className="action-text">Documentation</span>
             </button>
             <button 
               className={`action-btn record-action ${isRecording ? "recording" : ""}`}
               onClick={toggleRecording}
               disabled={status === "processing"}
             >
-              <Mic size={12} style={{marginRight: 6}} /> 
+              <Mic size={14} className="action-icon" /> 
               {status === "idle" ? "Generate Voice Code" : status === "recording" ? "Recording..." : "Processing..."}
             </button>
           </div>
@@ -648,6 +648,7 @@ function App() {
                     >
                       <FileTree 
                         path={path} 
+                        onCloseFolder={() => handleCloseFolder(path)}
                         onFileClick={handleFileClick} 
                         refreshTrigger={refreshTrigger} 
                         isRoot={false}
@@ -727,7 +728,7 @@ function App() {
             )}
           </div>
           
-          <div className="terminal-pane">
+          <div className={`terminal-pane ${isTerminalVisible ? 'visible' : 'hidden'}`}>
             <div className="terminal-tabs-bar">
               <div className="terminal-tabs">
                 <div 
@@ -768,13 +769,13 @@ function App() {
                     {terminals.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 </div>
-                <Plus size={14} className="term-icon" onClick={createNewTerminal}  />
+                <Plus size={14} className="term-icon" onClick={createNewTerminal} title="New Terminal" />
                 <TerminalSquare size={14} className="term-icon" />
-                <Minus size={14} className="term-icon" onClick={deleteTerminal}  />
-                <X size={14} className="term-icon" />
+                <Minus size={14} className="term-icon" onClick={deleteTerminal} title="Kill Terminal" />
+                {isTerminalVisible ? (<ChevronDown size={16} className="term-icon" onClick={() => setIsTerminalVisible(false)} title="Hide Panel" />) : (<ChevronUp size={16} className="term-icon" onClick={() => setIsTerminalVisible(true)} title="Show Panel" />)}
               </div>
             </div>
-            <div className="terminal-content">
+            <div className="terminal-content" style={{ display: isTerminalVisible ? "" : "none" }}>
               {/* TERMINAL */}
               <div style={{ display: activeBottomTab === "terminal" ? "block" : "none", height: "100%" }}>
                 {terminals.map(term => (
@@ -863,6 +864,17 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
+
 
 
 
