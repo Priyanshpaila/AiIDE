@@ -510,3 +510,16 @@ html, body, #root {
 .folder-root-container { border-left: 2px solid transparent; margin-bottom: 2px; }
 .folder-root-container.active-folder { border-left: 2px solid #c8ff00; background: rgba(200, 255, 0, 0.05); }
 
+
+
+/* Bottom Panel Styles */
+.bottom-panel-content { height: 100%; overflow-y: auto; padding: 10px 15px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: #ccc; }
+.empty-panel { color: #888; font-style: italic; }
+.problem-row { display: flex; gap: 10px; margin-bottom: 6px; align-items: flex-start; }
+.problem-msg { flex: 1; color: #ddd; }
+.problem-loc { color: #666; font-size: 12px; }
+.output-row { margin-bottom: 4px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; }
+.debug-row { margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
+.debug-row.error { color: #f48771; }
+.debug-row.warn { color: #cca700; }
+

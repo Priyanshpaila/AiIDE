@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
+import { FileJson, FileCode, FileText, FileImage, FileTerminal, FileType, Folder, FolderOpen } from "lucide-react";
 import "./FileTree.css";
 
 interface Props {
@@ -9,6 +10,29 @@ interface Props {
   isRoot?: boolean;
   refreshTrigger?: number;
   startsExpanded?: boolean;
+}
+
+function getFileIconInfo(filename: string) {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'py': return { icon: <FileType size={14} />, color: '#3572A5' };
+    case 'js':
+    case 'jsx': return { icon: <FileCode size={14} />, color: '#f1e05a' };
+    case 'ts':
+    case 'tsx': return { icon: <FileCode size={14} />, color: '#2b7489' };
+    case 'cpp':
+    case 'c': return { icon: <FileCode size={14} />, color: '#f34b7d' };
+    case 'html': return { icon: <FileCode size={14} />, color: '#e34c26' };
+    case 'css': return { icon: <FileCode size={14} />, color: '#563d7c' };
+    case 'json': return { icon: <FileJson size={14} />, color: '#859900' };
+    case 'md': return { icon: <FileText size={14} />, color: '#083fa1' };
+    case 'sh':
+    case 'bat': return { icon: <FileTerminal size={14} />, color: '#89e051' };
+    case 'png':
+    case 'jpg':
+    case 'svg': return { icon: <FileImage size={14} />, color: '#a074c4' };
+    default: return { icon: <FileText size={14} />, color: '#ccc' };
+  }
 }
 
 export default function FileTree({ path, onFileClick, isRoot = true, refreshTrigger = 0, startsExpanded = false }: Props) {
@@ -65,7 +89,9 @@ export default function FileTree({ path, onFileClick, isRoot = true, refreshTrig
   return (
     <div className="file-tree-node">
       <div className="file-tree-label" onClick={toggleExpand}>
-        <span className="icon">{expanded ? "📂" : "📁"}</span>
+        <span className="icon" style={{display: 'flex', alignItems: 'center', color: '#c8ff00'}}>
+          {expanded ? <FolderOpen size={14} /> : <Folder size={14} />}
+        </span>
         {name}
       </div>
       {expanded && (
@@ -94,9 +120,13 @@ function FileTreeNode({ entry, parentPath, onFileClick, refreshTrigger }: { entr
     return <FileTree path={fullPath} onFileClick={onFileClick} isRoot={false} refreshTrigger={refreshTrigger} />;
   }
 
+  const iconInfo = getFileIconInfo(entry.name);
+
   return (
     <div className="file-tree-file" onClick={() => fullPath && onFileClick(fullPath)}>
-      <span className="icon">📄</span>
+      <span className="icon" style={{display: 'flex', alignItems: 'center', color: iconInfo.color}}>
+        {iconInfo.icon}
+      </span>
       {entry.name}
     </div>
   );

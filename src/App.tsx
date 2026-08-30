@@ -1,10 +1,14 @@
 import { useRef, useState, useEffect } from "react";
-import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
+import Editor, { DiffEditor, OnMount, loader } from "@monaco-editor/react";
 import { useVoiceToCode, streamAIPrompt } from "./hooks/useVoiceToCode";
 import Bootstrap from "./Bootstrap";
 import TerminalComponent from "./components/Terminal";
 import FileTree from "./components/FileTree";
 import * as monaco from "monaco-editor";
+
+// Configure Monaco to use the locally bundled version instead of the CDN
+loader.config({ monaco });
+
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { Terminal as XTerm } from "@xterm/xterm";
@@ -25,21 +29,93 @@ type Tab = {
 
 function App() {
   const [isBootstrapped, setIsBootstrapped] = useState(false);
-  const [folderPaths, setFolderPaths] = useState<string[]>([]);
-  const [activeFolderPath, setActiveFolderPath] = useState<string | null>(null);
+  const [folderPaths, setFolderPaths] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_folders");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
+  const [activeFolderPath, setActiveFolderPath] = useState<string | null>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_active_folder");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
   
-  const [tabs, setTabs] = useState<Tab[]>([{
-    id: "scratch-1",
-    name: "scratch.py",
-    path: "",
-    content: "",
-    lang: "python"
-  }]);
-  const [activeTabId, setActiveTabId] = useState<string>("scratch-1");
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_tabs");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [{
+      id: "scratch-1",
+      name: "scratch.py",
+      path: "",
+      content: "",
+      lang: "python"
+    }];
+  });
+  const [activeTabId, setActiveTabId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_active_tab");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return "scratch-1";
+  });
   const [showDiff, setShowDiff] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [showNewFileModal, setShowNewFileModal] = useState(false);
   const [newFileName, setNewFileName] = useState("");
+  
+  const [activeBottomTab, setActiveBottomTab] = useState<"problems"|"output"|"terminal"|"debug">("terminal");
+  const [problems, setProblems] = useState<monaco.editor.IMarker[]>([]);
+  const [outputLogs, setOutputLogs] = useState<string[]>(["VoiceIDE Output initialized..."]);
+  const [debugLogs, setDebugLogs] = useState<string[]>(["VoiceIDE Debug Console ready..."]);
+
+  useEffect(() => {
+    const disposable = monaco.editor.onDidChangeMarkers(() => {
+      setProblems(monaco.editor.getModelMarkers({}));
+    });
+    return () => disposable.dispose();
+  }, []);
+
+  useEffect(() => {
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    
+    console.log = (...args) => {
+      setDebugLogs(prev => [...prev, `[LOG] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" ")}`]);
+      originalLog(...args);
+    };
+    console.error = (...args) => {
+      setDebugLogs(prev => [...prev, `[ERR] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" ")}`]);
+      originalError(...args);
+    };
+    console.warn = (...args) => {
+      setDebugLogs(prev => [...prev, `[WARN] ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" ")}`]);
+      originalWarn(...args);
+    };
+    
+    return () => {
+      console.log = originalLog;
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }, []);
+
+  const appendOutput = (msg: string) => {
+    setOutputLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  };
+
+  useEffect(() => {
+    localStorage.setItem("voiceide_folders", JSON.stringify(folderPaths));
+    localStorage.setItem("voiceide_tabs", JSON.stringify(tabs));
+    localStorage.setItem("voiceide_active_tab", JSON.stringify(activeTabId));
+    localStorage.setItem("voiceide_active_folder", JSON.stringify(activeFolderPath));
+  }, [folderPaths, tabs, activeTabId, activeFolderPath]);
   
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
@@ -187,6 +263,8 @@ function App() {
 
   const handleDebug = async () => {
     if (!activeTab.content.trim()) return;
+    setActiveBottomTab("output");
+    appendOutput(`Starting AI Debug process for ${activeTab.name}...`);
     const sysPrompt = "You are an expert debugger. Fix any errors or logical bugs in the provided code. Output ONLY the raw corrected code wrapped in a markdown code block (e.g. ```python). Keep the same language. Ensure the output runs flawlessly.";
     const userPrompt = `Debug and fix the following code:\n\n${activeTab.content}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
@@ -194,6 +272,8 @@ function App() {
 
   const handleOptimize = async () => {
     if (!activeTab.content.trim()) return;
+    setActiveBottomTab("output");
+    appendOutput(`Starting AI Optimization process for ${activeTab.name}...`);
     const sysPrompt = "You are an expert performance optimizer. Rewrite the provided code to be significantly more efficient (e.g., O(1) instead of O(n^2)) while maintaining the exact same logic and functionality. Output ONLY the raw optimized code wrapped in a markdown code block. Keep the same language.";
     const userPrompt = `Optimize the following code for better performance and time/space complexity:\n\n${activeTab.content}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
@@ -204,6 +284,8 @@ function App() {
     const targetLang = prompt("Enter target programming language (e.g., c++, python, rust):");
     if (!targetLang) return;
     
+    setActiveBottomTab("output");
+    appendOutput(`Starting AI Translation to ${targetLang} for ${activeTab.name}...`);
     const sysPrompt = `You are an expert code translator. Translate the provided code into ${targetLang} without changing the underlying logic or functionality. Use idiomatic patterns for ${targetLang}. Output ONLY the raw translated code wrapped in a markdown code block (e.g. \`\`\`${targetLang}).`;
     const userPrompt = `Translate the following code to ${targetLang}:\n\n${activeTab.content}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
@@ -215,13 +297,17 @@ function App() {
       return;
     }
     
+    setActiveBottomTab("output");
+    appendOutput(`Initializing Documentation generation...`);
+    
     if (terminalRef.current) {
       terminalRef.current.writeln(`\r\n\x1b[1;36m> Generating project documentation...\x1b[0m`);
     }
     
     let combinedCode = "";
+    let targetFolder = folderPaths.length > 0 ? (activeFolderPath || folderPaths[0]) : null;
     
-    if (folderPaths.length > 0) {
+    if (targetFolder) {
       try {
         const { readDir, readTextFile } = await import("@tauri-apps/plugin-fs");
         const { join } = await import("@tauri-apps/api/path");
@@ -243,7 +329,7 @@ function App() {
             }
           }
         };
-        await readFolderRecursive(folderPaths[0]);
+        await readFolderRecursive(targetFolder);
       } catch (e) {
         console.error("Failed to read project files for documentation:", e);
       }
@@ -256,17 +342,41 @@ function App() {
     
     let newTabId = "";
     let docBuffer = "";
-    await streamAIPrompt(sysPrompt, userPrompt, (code, isComplete, isStart) => {
+    let readmePath = "";
+    
+    if (targetFolder) {
+      try {
+        const { join } = await import("@tauri-apps/api/path");
+        readmePath = await join(targetFolder, "README.md");
+      } catch (e) {}
+    }
+    
+    await streamAIPrompt(sysPrompt, userPrompt, async (code, isComplete, isStart) => {
       if (isStart) {
         newTabId = `doc-${Date.now()}`;
         setTabs(prev => [...prev, {
-          id: newTabId, name: 'README.md', path: '', content: '', lang: 'markdown'
+          id: newTabId, name: 'README.md', path: readmePath, content: '', lang: 'markdown'
         }]);
         setActiveTabId(newTabId);
+        
+        if (readmePath) {
+          try {
+            const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+            await writeTextFile(readmePath, "");
+            setRefreshTrigger(prev => prev + 1);
+          } catch(e) {}
+        }
       }
       docBuffer += code;
       const cleaned = docBuffer.replace(/```[a-zA-Z0-9+-]*\r?\n?/g, "").replace(/```/g, "");
       setTabs(prev => prev.map(t => t.id === newTabId ? { ...t, content: cleaned } : t));
+      
+      if (isComplete && readmePath) {
+         try {
+           const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+           await writeTextFile(readmePath, cleaned);
+         } catch(e) {}
+      }
     });
   };
 
@@ -314,6 +424,8 @@ function App() {
   const terminalInputHandlerRef = useRef<any>(null);
 
   const handleRun = async () => {
+    setActiveBottomTab("terminal");
+    appendOutput(`Executing ${activeTab.lang} script...`);
     if (terminalRef.current) {
       const term = terminalRef.current;
       term.writeln(`\x1b[1;33m> Executing ${activeTab.lang} script...\x1b[0m`);
@@ -578,10 +690,30 @@ function App() {
           <div className="terminal-pane">
             <div className="terminal-tabs-bar">
               <div className="terminal-tabs">
-                <div className="term-tab">PROBLEMS <span className="badge">16</span></div>
-                <div className="term-tab">OUTPUT</div>
-                <div className="term-tab active">TERMINAL</div>
-                <div className="term-tab">DEBUG CONSOLE</div>
+                <div 
+                  className={`term-tab ${activeBottomTab === 'problems' ? 'active' : ''}`}
+                  onClick={() => setActiveBottomTab('problems')}
+                >
+                  PROBLEMS {problems.length > 0 && <span className="badge">{problems.length}</span>}
+                </div>
+                <div 
+                  className={`term-tab ${activeBottomTab === 'output' ? 'active' : ''}`}
+                  onClick={() => setActiveBottomTab('output')}
+                >
+                  OUTPUT
+                </div>
+                <div 
+                  className={`term-tab ${activeBottomTab === 'terminal' ? 'active' : ''}`}
+                  onClick={() => setActiveBottomTab('terminal')}
+                >
+                  TERMINAL
+                </div>
+                <div 
+                  className={`term-tab ${activeBottomTab === 'debug' ? 'active' : ''}`}
+                  onClick={() => setActiveBottomTab('debug')}
+                >
+                  DEBUG CONSOLE
+                </div>
               </div>
               <div className="terminal-actions">
                 <span className="term-dropdown">1: Node <ChevronDown size={12} style={{marginLeft: 4}} /></span>
@@ -592,7 +724,45 @@ function App() {
               </div>
             </div>
             <div className="terminal-content">
-              <TerminalComponent onRef={(term) => (terminalRef.current = term)} />
+              {/* TERMINAL */}
+              <div style={{ display: activeBottomTab === "terminal" ? "block" : "none", height: "100%" }}>
+                <TerminalComponent onRef={(term) => (terminalRef.current = term)} />
+              </div>
+              
+              {/* PROBLEMS */}
+              <div className="bottom-panel-content" style={{ display: activeBottomTab === "problems" ? "block" : "none" }}>
+                {problems.length === 0 ? (
+                  <div className="empty-panel">No problems have been detected in the workspace.</div>
+                ) : (
+                  problems.map((p, i) => (
+                    <div key={i} className="problem-row">
+                      <span className={`severity-${p.severity}`}>
+                        {p.severity === 8 ? "🔴" : p.severity === 4 ? "🟡" : "🔵"}
+                      </span>
+                      <span className="problem-msg">{p.message}</span>
+                      <span className="problem-loc">
+                        [{p.startLineNumber}, {p.startColumn}]
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              {/* OUTPUT */}
+              <div className="bottom-panel-content" style={{ display: activeBottomTab === "output" ? "block" : "none" }}>
+                {outputLogs.map((log, i) => (
+                  <div key={i} className="output-row">{log}</div>
+                ))}
+              </div>
+              
+              {/* DEBUG CONSOLE */}
+              <div className="bottom-panel-content" style={{ display: activeBottomTab === "debug" ? "block" : "none" }}>
+                {debugLogs.map((log, i) => (
+                  <div key={i} className={`debug-row ${log.startsWith('[ERR]') ? 'error' : log.startsWith('[WARN]') ? 'warn' : ''}`}>
+                    {log}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
