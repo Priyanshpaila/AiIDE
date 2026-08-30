@@ -1,0 +1,46 @@
+.file-tree {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  color: #cccccc;
+  user-select: none;
+}
+
+.file-tree.root {
+  padding: 8px;
+}
+
+.file-tree-node {
+  margin-left: 12px;
+}
+
+.file-tree-children {
+  border-left: 1px solid #444;
+  margin-left: 6px;
+}
+
+.file-tree-label, .file-tree-file {
+  padding: 4px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+}
+
+.file-tree-label:hover, .file-tree-file:hover {
+  background-color: #37373d;
+}
+
+.file-tree-file {
+  margin-left: 12px;
+}
+
+.icon {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+.loading {
+  padding: 4px 12px;
+  color: #888;
+  font-style: italic;
+}
