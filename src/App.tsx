@@ -182,7 +182,7 @@ function App() {
     if (!newFileName.trim()) return;
 
     let fileName = newFileName.trim();
-    const ext = activeTab.lang === 'python' ? 'py' : activeTab.lang === 'javascript' ? 'js' : activeTab.lang === 'cpp' ? 'cpp' : activeTab.lang === 'c' ? 'c' : activeTab.lang;
+    const ext = activeTab?.lang === 'python' ? 'py' : activeTab?.lang === 'javascript' ? 'js' : activeTab?.lang === 'cpp' ? 'cpp' : activeTab?.lang === 'c' ? 'c' : activeTab?.lang || 'txt';
     
     if (!fileName.includes('.')) {
       fileName += `.${ext}`;
@@ -199,12 +199,12 @@ function App() {
         const newPath = await join(targetFolder, fileName);
         await writeTextFile(newPath, "");
         setRefreshTrigger(prev => prev + 1);
-        createNewTab(activeTab.lang, "", newPath, fileName);
+        createNewTab(activeTab?.lang || 'python', "", newPath, fileName);
       } catch (err) {
         console.error("Failed to create file:", err);
       }
     } else {
-      createNewTab(activeTab.lang, "", "", fileName);
+      createNewTab(activeTab?.lang || 'python', "", "", fileName);
     }
   };
 
@@ -238,14 +238,14 @@ function App() {
       let finalCode = streamBufferRef.current;
       
       const match = finalCode.match(/```([a-zA-Z0-9+-]+)(?:\r?\n)/);
-      let detectedLang = activeTab.lang;
+      let detectedLang = activeTab?.lang;
       if (match && match[1]) {
         detectedLang = match[1].toLowerCase();
       }
       
       const cleaned = finalCode.replace(/```[a-zA-Z0-9+-]*\r?\n?/g, "").replace(/```/g, "");
       
-      if (detectedLang !== activeTab.lang) {
+      if (detectedLang !== activeTab?.lang) {
         setShowDiff(false);
         createNewTab(detectedLang, cleaned);
       } else {
@@ -277,42 +277,42 @@ function App() {
   };
 
   const { isRecording, status, toggleRecording } = useVoiceToCode(
-    () => activeTab.content,
+    () => activeTab?.content || '',
     handleAIGeneratedChunk
   );
 
   const handleDebug = async () => {
-    if (!activeTab || !activeTab.content.trim()) return;
+    if (!activeTab || !(activeTab?.content || '').trim()) return;
     setActiveBottomTab("output");
-    appendOutput(`Starting AI Debug process for ${activeTab.name}...`);
+    appendOutput(`Starting AI Debug process for ${activeTab?.name || ''}...`);
     const sysPrompt = "You are an expert debugger. Fix any errors or logical bugs in the provided code. Output ONLY the raw corrected code wrapped in a markdown code block (e.g. ```python). Keep the same language. Ensure the output runs flawlessly.";
-    const userPrompt = `Debug and fix the following code:\n\n${activeTab.content}`;
+    const userPrompt = `Debug and fix the following code:\n\n${activeTab?.content || ''}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
   };
 
   const handleOptimize = async () => {
-    if (!activeTab || !activeTab.content.trim()) return;
+    if (!activeTab || !(activeTab?.content || '').trim()) return;
     setActiveBottomTab("output");
-    appendOutput(`Starting AI Optimization process for ${activeTab.name}...`);
+    appendOutput(`Starting AI Optimization process for ${activeTab?.name || ''}...`);
     const sysPrompt = "You are an expert performance optimizer. Rewrite the provided code to be significantly more efficient (e.g., O(1) instead of O(n^2)) while maintaining the exact same logic and functionality. Output ONLY the raw optimized code wrapped in a markdown code block. Keep the same language.";
-    const userPrompt = `Optimize the following code for better performance and time/space complexity:\n\n${activeTab.content}`;
+    const userPrompt = `Optimize the following code for better performance and time/space complexity:\n\n${activeTab?.content || ''}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
   };
 
   const handleTranslate = async () => {
-    if (!activeTab || !activeTab.content.trim()) return;
+    if (!activeTab || !(activeTab?.content || '').trim()) return;
     const targetLang = prompt("Enter target programming language (e.g., c++, python, rust):");
     if (!targetLang) return;
     
     setActiveBottomTab("output");
-    appendOutput(`Starting AI Translation to ${targetLang} for ${activeTab.name}...`);
+    appendOutput(`Starting AI Translation to ${targetLang} for ${activeTab?.name || ''}...`);
     const sysPrompt = `You are an expert code translator. Translate the provided code into ${targetLang} without changing the underlying logic or functionality. Use idiomatic patterns for ${targetLang}. Output ONLY the raw translated code wrapped in a markdown code block (e.g. \`\`\`${targetLang}).`;
-    const userPrompt = `Translate the following code to ${targetLang}:\n\n${activeTab.content}`;
+    const userPrompt = `Translate the following code to ${targetLang}:\n\n${activeTab?.content || ''}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
   };
 
   const handleDocumentation = async () => {
-    if (folderPaths.length === 0 && (!activeTab || !activeTab.content.trim())) {
+    if (folderPaths.length === 0 && (!activeTab || !(activeTab?.content || '').trim())) {
       alert("Please open a folder or write some code to generate documentation.");
       return;
     }
@@ -354,7 +354,7 @@ function App() {
         console.error("Failed to read project files for documentation:", e);
       }
     } else {
-      combinedCode = `\n\n--- File: ${activeTab.name} ---\n${activeTab.content}`;
+      combinedCode = `\n\n--- File: ${activeTab?.name || ''} ---\n${activeTab?.content || ''}`;
     }
     
     const sysPrompt = "You are an expert technical writer. Analyze the provided project files and generate a clean, comprehensive README.md documentation explaining what the project is, its structure, and how it works. Output ONLY the raw markdown wrapped in a ```markdown block.";
@@ -445,13 +445,13 @@ function App() {
 
   const handleRun = async () => {
     setActiveBottomTab("terminal");
-    appendOutput(`Executing ${activeTab.lang} script...`);
+    appendOutput(`Executing ${(activeTab?.lang || 'python')} script...`);
     if (getActiveTerminal()) {
       const term = getActiveTerminal();
-      term.writeln(`\x1b[1;33m> Executing ${activeTab.lang} script...\x1b[0m`);
+      term.writeln(`\x1b[1;33m> Executing ${(activeTab?.lang || 'python')} script...\x1b[0m`);
       
       if (!activeTab) return;
-      let code = activeTab.content;
+      let code = activeTab?.content || '';
       
       try {
         const { appDataDir, join, dirname, basename } = await import("@tauri-apps/api/path");
@@ -471,8 +471,8 @@ function App() {
         await Command.create("powershell", ["-Command", "Stop-Process -Name 'scratch.c' -Force -ErrorAction SilentlyContinue"]).execute().catch(() => {});
         await Command.create("powershell", ["-Command", "Stop-Process -Name 'scratch.go' -Force -ErrorAction SilentlyContinue"]).execute().catch(() => {});
         
-        let executionPath = activeTab.path;
-        const lang = activeTab.lang;
+        let executionPath = activeTab?.path;
+        const lang = activeTab?.lang;
         if (!executionPath) {
             const appData = await appDataDir();
             const ext = lang === 'python' ? 'py' : lang === 'javascript' ? 'js' : lang === 'cpp' ? 'cpp' : lang === 'c' ? 'c' : 'txt';
@@ -594,7 +594,7 @@ function App() {
         <div className="toolbar-right">
           <select 
             className="language-select" 
-            value={activeTab.lang} 
+            value={activeTab?.lang || 'python'} 
             onChange={(e) => {
               const newLang = e.target.value;
               const newExt = newLang === 'python' ? 'py' : newLang === 'javascript' ? 'js' : newLang === 'cpp' ? 'cpp' : newLang === 'c' ? 'c' : newLang;
@@ -669,14 +669,14 @@ function App() {
             {activeTab ? (
               <>
                 <div className="breadcrumb">
-                  project &gt; {activeTab.path || activeTab.name}
+                  project &gt; {activeTab?.path || activeTab?.name || ''}
                 </div>
                 <div className="editor-wrapper">
                   <div style={{ display: showDiff ? "block" : "none", height: "100%" }}>
                      <DiffEditor
                        height="100%"
-                       language={activeTab.lang}
-                       original={activeTab.content}
+                       language={(activeTab?.lang || 'python')}
+                       original={activeTab?.content || ''}
                        modified={streamBufferRef.current}
                        theme="vs-dark"
                        onMount={handleDiffEditorDidMount}
@@ -692,8 +692,8 @@ function App() {
                   <div style={{ display: showDiff ? "none" : "block", height: "100%" }}>
                      <Editor
                        height="100%"
-                       language={activeTab.lang}
-                       value={activeTab.content}
+                       language={(activeTab?.lang || 'python')}
+                       value={activeTab?.content || ''}
                        onChange={handleEditorChange}
                        theme="vs-dark"
                        onMount={handleEditorDidMount}
@@ -768,9 +768,9 @@ function App() {
                     {terminals.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 </div>
-                <Plus size={14} className="term-icon" onClick={createNewTerminal} title="New Terminal" />
+                <Plus size={14} className="term-icon" onClick={createNewTerminal}  />
                 <TerminalSquare size={14} className="term-icon" />
-                <Minus size={14} className="term-icon" onClick={deleteTerminal} title="Kill Terminal" />
+                <Minus size={14} className="term-icon" onClick={deleteTerminal}  />
                 <X size={14} className="term-icon" />
               </div>
             </div>
@@ -831,7 +831,7 @@ function App() {
               <input 
                 type="text" 
                 className="modal-input" 
-                placeholder={`e.g. main.${activeTab.lang === 'python' ? 'py' : activeTab.lang === 'cpp' ? 'cpp' : 'js'}`}
+                placeholder={`e.g. main.${activeTab?.lang === 'python' ? 'py' : activeTab?.lang === 'cpp' ? 'cpp' : 'js'}`}
                 value={newFileName}
                 onChange={e => setNewFileName(e.target.value)}
                 autoFocus
@@ -852,10 +852,10 @@ function App() {
           <span className="status-item">Live share</span>
         </div>
         <div className="status-middle">
-          Auto saved: just now &nbsp;&nbsp;&nbsp; {activeTab.lang.toUpperCase()} 64-bit
+          Auto saved: just now &nbsp;&nbsp;&nbsp; {(activeTab?.lang || 'python').toUpperCase()} 64-bit
         </div>
         <div className="status-right">
-          Spaces: 4 &nbsp;&nbsp; UTF-8 &nbsp;&nbsp; CRLF &nbsp;&nbsp; {activeTab.lang}
+          Spaces: 4 &nbsp;&nbsp; UTF-8 &nbsp;&nbsp; CRLF &nbsp;&nbsp; {activeTab?.lang || 'python'}
         </div>
       </footer>
     </div>
@@ -863,6 +863,12 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
 
 
 
