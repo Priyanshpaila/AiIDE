@@ -25,17 +25,20 @@ type Tab = {
 
 function App() {
   const [isBootstrapped, setIsBootstrapped] = useState(false);
-  const [folderPath, setFolderPath] = useState<string | null>(null);
+  const [folderPaths, setFolderPaths] = useState<string[]>([]);
   
   const [tabs, setTabs] = useState<Tab[]>([{
     id: "scratch-1",
     name: "scratch.py",
     path: "",
-    content: "# Welcome to VoiceIDE\n# Click 'Record Voice' and speak to generate code.\n\n",
+    content: "",
     lang: "python"
   }]);
   const [activeTabId, setActiveTabId] = useState<string>("scratch-1");
   const [showDiff, setShowDiff] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [showNewFileModal, setShowNewFileModal] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
   
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
@@ -58,18 +61,59 @@ function App() {
     setTabs(tabs.map(t => t.id === activeTabId ? { ...t, content: value } : t));
   };
 
-  const createNewTab = (lang: string, content: string) => {
-    const ext = lang === 'python' ? 'py' : lang === 'javascript' ? 'js' : lang === 'cpp' ? 'cpp' : lang;
+  const createNewTab = (lang: string, content: string, path: string = "", name?: string) => {
+    const ext = lang === 'python' ? 'py' : lang === 'javascript' ? 'js' : lang === 'cpp' ? 'cpp' : lang === 'c' ? 'c' : lang;
     const newId = `scratch-${Date.now()}`;
     const newTab = {
       id: newId,
-      name: `scratch.${ext}`,
-      path: "",
+      name: name || `scratch.${ext}`,
+      path,
       content,
       lang
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newId);
+  };
+
+  const openNewFileModal = () => {
+    setNewFileName("");
+    setShowNewFileModal(true);
+  };
+
+  const submitNewFile = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!newFileName.trim()) return;
+
+    let fileName = newFileName.trim();
+    const ext = activeTab.lang === 'python' ? 'py' : activeTab.lang === 'javascript' ? 'js' : activeTab.lang === 'cpp' ? 'cpp' : activeTab.lang === 'c' ? 'c' : activeTab.lang;
+    
+    if (!fileName.includes('.')) {
+      fileName += `.${ext}`;
+    }
+    
+    setShowNewFileModal(false);
+
+    if (folderPaths.length > 0) {
+      // Create it in the active file's folder if possible, otherwise the first folder
+      let targetFolder = folderPaths[0];
+      if (activeTab.path) {
+        const matchingFolder = folderPaths.find(p => activeTab.path.startsWith(p));
+        if (matchingFolder) targetFolder = matchingFolder;
+      }
+
+      try {
+        const { join } = await import("@tauri-apps/api/path");
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        const newPath = await join(targetFolder, fileName);
+        await writeTextFile(newPath, "");
+        setRefreshTrigger(prev => prev + 1);
+        createNewTab(activeTab.lang, "", newPath, fileName);
+      } catch (err) {
+        console.error("Failed to create file:", err);
+      }
+    } else {
+      createNewTab(activeTab.lang, "", "", fileName);
+    }
   };
 
   const closeTab = (id: string, e: React.MouseEvent) => {
@@ -144,9 +188,16 @@ function App() {
   );
 
   const handleOpenFolder = async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === "string") {
-      setFolderPath(selected);
+    const selected = await open({ directory: true, multiple: true });
+    if (selected) {
+      const paths = Array.isArray(selected) ? selected : [selected];
+      setFolderPaths(prev => {
+        const newPaths = [...prev];
+        paths.forEach(p => {
+          if (!newPaths.includes(p)) newPaths.push(p);
+        });
+        return newPaths;
+      });
     }
   };
 
@@ -179,8 +230,6 @@ function App() {
       term.writeln(`\x1b[1;33m> Executing ${activeTab.lang} script...\x1b[0m`);
       
       let code = activeTab.content;
-      code = code.replace(/# Welcome to VoiceIDE\\n# Click 'Record Voice' and speak to generate code\.\\n/g, "");
-      code = code.replace(/# Welcome to VoiceIDE\n# Click 'Record Voice' and speak to generate code\.\n/g, "");
       
       try {
         const { appDataDir, join, dirname, basename } = await import("@tauri-apps/api/path");
@@ -260,7 +309,7 @@ function App() {
           <div className="dot red"></div>
           <div className="dot yellow"></div>
           <div className="dot green"></div>
-          <Plus size={14} className="window-add" onClick={() => createNewTab("python", "")} />
+          <Plus size={14} className="window-add" onClick={openNewFileModal} />
         </div>
         <div className="tabs-container">
           {tabs.map(tab => (
@@ -356,7 +405,7 @@ function App() {
         {/* SIDEBAR */}
         <aside className="sidebar">
           <div className="sidebar-top">
-            <button className="create-file-btn" onClick={() => createNewTab("python", "")}>
+            <button className="create-file-btn" onClick={openNewFileModal}>
               <Plus size={14} style={{marginRight: 6}} /> Create new file
             </button>
             <button className="search-btn"><Search size={14} /></button>
@@ -367,8 +416,19 @@ function App() {
               <span className="dots">...</span>
             </div>
             <div className="sidebar-tree">
-              {folderPath ? (
-                <FileTree path={folderPath} onFileClick={handleFileClick} />
+              {folderPaths.length > 0 ? (
+                <div className="file-tree root">
+                  {folderPaths.map((path, idx) => (
+                    <FileTree 
+                      key={path} 
+                      path={path} 
+                      onFileClick={handleFileClick} 
+                      refreshTrigger={refreshTrigger} 
+                      isRoot={false}
+                      startsExpanded={idx === 0} 
+                    />
+                  ))}
+                </div>
               ) : (
                 <div className="empty-sidebar">No folder opened</div>
               )}
@@ -443,6 +503,28 @@ function App() {
           </div>
         </div>
       </main>
+
+      {showNewFileModal && (
+        <div className="modal-overlay" onClick={() => setShowNewFileModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h3>Create New File</h3>
+            <form onSubmit={submitNewFile} style={{display: 'flex', flexDirection: 'column', gap: '15px'}}>
+              <input 
+                type="text" 
+                className="modal-input" 
+                placeholder={`e.g. main.${activeTab.lang === 'python' ? 'py' : activeTab.lang === 'cpp' ? 'cpp' : 'js'}`}
+                value={newFileName}
+                onChange={e => setNewFileName(e.target.value)}
+                autoFocus
+              />
+              <div className="modal-actions">
+                <button type="button" className="modal-btn cancel" onClick={() => setShowNewFileModal(false)}>Cancel</button>
+                <button type="submit" className="modal-btn primary">Create</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       
       {/* STATUS BAR */}
       <footer className="status-bar">

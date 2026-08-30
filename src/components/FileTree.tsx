@@ -7,11 +7,13 @@ interface Props {
   path: string;
   onFileClick: (filePath: string) => void;
   isRoot?: boolean;
+  refreshTrigger?: number;
+  startsExpanded?: boolean;
 }
 
-export default function FileTree({ path, onFileClick, isRoot = true }: Props) {
+export default function FileTree({ path, onFileClick, isRoot = true, refreshTrigger = 0, startsExpanded = false }: Props) {
   const [entries, setEntries] = useState<DirEntry[]>([]);
-  const [expanded, setExpanded] = useState<boolean>(isRoot);
+  const [expanded, setExpanded] = useState<boolean>(isRoot || startsExpanded);
   const [loading, setLoading] = useState<boolean>(false);
   const [name, setName] = useState<string>("");
 
@@ -22,10 +24,10 @@ export default function FileTree({ path, onFileClick, isRoot = true }: Props) {
   }, [path]);
 
   useEffect(() => {
-    if (expanded && entries.length === 0) {
+    if (expanded) {
       loadEntries();
     }
-  }, [expanded, path]);
+  }, [expanded, path, refreshTrigger]);
 
   async function loadEntries() {
     try {
@@ -54,7 +56,7 @@ export default function FileTree({ path, onFileClick, isRoot = true }: Props) {
     return (
       <div className="file-tree root">
         {entries.map((entry) => (
-          <FileTreeNode key={entry.name} entry={entry} parentPath={path} onFileClick={onFileClick} />
+          <FileTreeNode key={entry.name} entry={entry} parentPath={path} onFileClick={onFileClick} refreshTrigger={refreshTrigger} />
         ))}
       </div>
     );
@@ -72,7 +74,7 @@ export default function FileTree({ path, onFileClick, isRoot = true }: Props) {
             <div className="loading">Loading...</div>
           ) : (
             entries.map((entry) => (
-              <FileTreeNode key={entry.name} entry={entry} parentPath={path} onFileClick={onFileClick} />
+              <FileTreeNode key={entry.name} entry={entry} parentPath={path} onFileClick={onFileClick} refreshTrigger={refreshTrigger} />
             ))
           )}
         </div>
@@ -81,7 +83,7 @@ export default function FileTree({ path, onFileClick, isRoot = true }: Props) {
   );
 }
 
-function FileTreeNode({ entry, parentPath, onFileClick }: { entry: DirEntry; parentPath: string; onFileClick: (path: string) => void }) {
+function FileTreeNode({ entry, parentPath, onFileClick, refreshTrigger }: { entry: DirEntry; parentPath: string; onFileClick: (path: string) => void, refreshTrigger?: number }) {
   const [fullPath, setFullPath] = useState<string>("");
 
   useEffect(() => {
@@ -89,7 +91,7 @@ function FileTreeNode({ entry, parentPath, onFileClick }: { entry: DirEntry; par
   }, [parentPath, entry.name]);
 
   if (entry.isDirectory) {
-    return <FileTree path={fullPath} onFileClick={onFileClick} isRoot={false} />;
+    return <FileTree path={fullPath} onFileClick={onFileClick} isRoot={false} refreshTrigger={refreshTrigger} />;
   }
 
   return (
