@@ -504,3 +504,9 @@ html, body, #root {
 .modal-btn.primary { background: #c8ff00; color: #000; }
 .modal-btn.primary:hover { opacity: 0.9; }
 
+
+
+/* Active Folder Styles */
+.folder-root-container { border-left: 2px solid transparent; margin-bottom: 2px; }
+.folder-root-container.active-folder { border-left: 2px solid #c8ff00; background: rgba(200, 255, 0, 0.05); }
+

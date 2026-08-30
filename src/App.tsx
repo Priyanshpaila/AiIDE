@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
-import { useVoiceToCode } from "./hooks/useVoiceToCode";
+import { useVoiceToCode, streamAIPrompt } from "./hooks/useVoiceToCode";
 import Bootstrap from "./Bootstrap";
 import TerminalComponent from "./components/Terminal";
 import FileTree from "./components/FileTree";
@@ -26,6 +26,7 @@ type Tab = {
 function App() {
   const [isBootstrapped, setIsBootstrapped] = useState(false);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
+  const [activeFolderPath, setActiveFolderPath] = useState<string | null>(null);
   
   const [tabs, setTabs] = useState<Tab[]>([{
     id: "scratch-1",
@@ -94,12 +95,7 @@ function App() {
     setShowNewFileModal(false);
 
     if (folderPaths.length > 0) {
-      // Create it in the active file's folder if possible, otherwise the first folder
-      let targetFolder = folderPaths[0];
-      if (activeTab.path) {
-        const matchingFolder = folderPaths.find(p => activeTab.path.startsWith(p));
-        if (matchingFolder) targetFolder = matchingFolder;
-      }
+      let targetFolder = activeFolderPath || folderPaths[0];
 
       try {
         const { join } = await import("@tauri-apps/api/path");
@@ -134,58 +130,145 @@ function App() {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
-  const { isRecording, status, toggleRecording } = useVoiceToCode(
-    () => activeTab.content,
-    (code, isComplete, isStart) => {
-      if (isStart) {
-        streamBufferRef.current = "";
-        setShowDiff(true);
-      }
+  const handleAIGeneratedChunk = (code: string, isComplete?: boolean, isStart?: boolean) => {
+    if (isStart) {
+      streamBufferRef.current = "";
+      setShowDiff(true);
+    }
 
-      streamBufferRef.current += code;
+    streamBufferRef.current += code;
 
-      if (isComplete) {
-        let finalCode = streamBufferRef.current;
-        
-        const match = finalCode.match(/```([a-zA-Z0-9+-]+)(?:\r?\n)/);
-        let detectedLang = activeTab.lang;
-        if (match && match[1]) {
-          detectedLang = match[1].toLowerCase();
-        }
-        
-        const cleaned = finalCode.replace(/```[a-zA-Z0-9+-]*\r?\n?/g, "").replace(/```/g, "");
-        
-        if (detectedLang !== activeTab.lang) {
-          setShowDiff(false);
-          createNewTab(detectedLang, cleaned);
-        } else {
-          setTabs(prevTabs => prevTabs.map(t => 
-            t.id === activeTabIdRef.current ? { ...t, content: cleaned } : t
-          ));
-          setShowDiff(false);
-          
-          if (editorRef.current) {
-             const model = editorRef.current.getModel();
-             if (model) {
-                 editorRef.current.executeEdits("voice-to-code", [{
-                     range: model.getFullModelRange(),
-                     text: cleaned,
-                     forceMoveMarkers: true
-                 }]);
-             }
-          }
-        }
-        return;
+    if (isComplete) {
+      let finalCode = streamBufferRef.current;
+      
+      const match = finalCode.match(/```([a-zA-Z0-9+-]+)(?:\r?\n)/);
+      let detectedLang = activeTab.lang;
+      if (match && match[1]) {
+        detectedLang = match[1].toLowerCase();
       }
       
-      if (diffEditorRef.current) {
-         const modifiedModel = diffEditorRef.current.getModel()?.modified;
-         if (modifiedModel) {
-            modifiedModel.setValue(streamBufferRef.current);
-         }
+      const cleaned = finalCode.replace(/```[a-zA-Z0-9+-]*\r?\n?/g, "").replace(/```/g, "");
+      
+      if (detectedLang !== activeTab.lang) {
+        setShowDiff(false);
+        createNewTab(detectedLang, cleaned);
+      } else {
+        setTabs(prevTabs => prevTabs.map(t => 
+          t.id === activeTabIdRef.current ? { ...t, content: cleaned } : t
+        ));
+        setShowDiff(false);
+        
+        if (editorRef.current) {
+           const model = editorRef.current.getModel();
+           if (model) {
+               editorRef.current.executeEdits("ai-edit", [{
+                   range: model.getFullModelRange(),
+                   text: cleaned,
+                   forceMoveMarkers: true
+               }]);
+           }
+        }
       }
+      return;
     }
+    
+    if (diffEditorRef.current) {
+       const modifiedModel = diffEditorRef.current.getModel()?.modified;
+       if (modifiedModel) {
+          modifiedModel.setValue(streamBufferRef.current);
+       }
+    }
+  };
+
+  const { isRecording, status, toggleRecording } = useVoiceToCode(
+    () => activeTab.content,
+    handleAIGeneratedChunk
   );
+
+  const handleDebug = async () => {
+    if (!activeTab.content.trim()) return;
+    const sysPrompt = "You are an expert debugger. Fix any errors or logical bugs in the provided code. Output ONLY the raw corrected code wrapped in a markdown code block (e.g. ```python). Keep the same language. Ensure the output runs flawlessly.";
+    const userPrompt = `Debug and fix the following code:\n\n${activeTab.content}`;
+    await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
+  };
+
+  const handleOptimize = async () => {
+    if (!activeTab.content.trim()) return;
+    const sysPrompt = "You are an expert performance optimizer. Rewrite the provided code to be significantly more efficient (e.g., O(1) instead of O(n^2)) while maintaining the exact same logic and functionality. Output ONLY the raw optimized code wrapped in a markdown code block. Keep the same language.";
+    const userPrompt = `Optimize the following code for better performance and time/space complexity:\n\n${activeTab.content}`;
+    await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
+  };
+
+  const handleTranslate = async () => {
+    if (!activeTab.content.trim()) return;
+    const targetLang = prompt("Enter target programming language (e.g., c++, python, rust):");
+    if (!targetLang) return;
+    
+    const sysPrompt = `You are an expert code translator. Translate the provided code into ${targetLang} without changing the underlying logic or functionality. Use idiomatic patterns for ${targetLang}. Output ONLY the raw translated code wrapped in a markdown code block (e.g. \`\`\`${targetLang}).`;
+    const userPrompt = `Translate the following code to ${targetLang}:\n\n${activeTab.content}`;
+    await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
+  };
+
+  const handleDocumentation = async () => {
+    if (folderPaths.length === 0 && !activeTab.content.trim()) {
+      alert("Please open a folder or write some code to generate documentation.");
+      return;
+    }
+    
+    if (terminalRef.current) {
+      terminalRef.current.writeln(`\r\n\x1b[1;36m> Generating project documentation...\x1b[0m`);
+    }
+    
+    let combinedCode = "";
+    
+    if (folderPaths.length > 0) {
+      try {
+        const { readDir, readTextFile } = await import("@tauri-apps/plugin-fs");
+        const { join } = await import("@tauri-apps/api/path");
+        
+        const readFolderRecursive = async (path: string, depth = 0) => {
+          if (depth > 3) return; // Prevent infinite/massive trees
+          const entries = await readDir(path);
+          for (const entry of entries) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name.includes('scratch.bat') || entry.name.endsWith('.exe')) continue;
+            
+            const fullPath = await join(path, entry.name);
+            if (entry.isDirectory) {
+              await readFolderRecursive(fullPath, depth + 1);
+            } else {
+              if (entry.name.match(/\.(py|cpp|c|js|ts|jsx|tsx|html|css|json|md|txt)$/)) {
+                 const content = await readTextFile(fullPath);
+                 combinedCode += `\n\n--- File: ${entry.name} ---\n${content}`;
+              }
+            }
+          }
+        };
+        await readFolderRecursive(folderPaths[0]);
+      } catch (e) {
+        console.error("Failed to read project files for documentation:", e);
+      }
+    } else {
+      combinedCode = `\n\n--- File: ${activeTab.name} ---\n${activeTab.content}`;
+    }
+    
+    const sysPrompt = "You are an expert technical writer. Analyze the provided project files and generate a clean, comprehensive README.md documentation explaining what the project is, its structure, and how it works. Output ONLY the raw markdown wrapped in a ```markdown block.";
+    const userPrompt = `Generate documentation for this project based on these files:\n${combinedCode.substring(0, 15000)}`;
+    
+    let newTabId = "";
+    let docBuffer = "";
+    await streamAIPrompt(sysPrompt, userPrompt, (code, isComplete, isStart) => {
+      if (isStart) {
+        newTabId = `doc-${Date.now()}`;
+        setTabs(prev => [...prev, {
+          id: newTabId, name: 'README.md', path: '', content: '', lang: 'markdown'
+        }]);
+        setActiveTabId(newTabId);
+      }
+      docBuffer += code;
+      const cleaned = docBuffer.replace(/```[a-zA-Z0-9+-]*\r?\n?/g, "").replace(/```/g, "");
+      setTabs(prev => prev.map(t => t.id === newTabId ? { ...t, content: cleaned } : t));
+    });
+  };
 
   const handleOpenFolder = async () => {
     const selected = await open({ directory: true, multiple: true });
@@ -196,6 +279,9 @@ function App() {
         paths.forEach(p => {
           if (!newPaths.includes(p)) newPaths.push(p);
         });
+        if (!activeFolderPath && newPaths.length > 0) {
+          setActiveFolderPath(newPaths[0]);
+        }
         return newPaths;
       });
     }
@@ -203,6 +289,9 @@ function App() {
 
   const handleFileClick = async (filePath: string) => {
     try {
+      const matchingFolder = folderPaths.find(p => filePath.startsWith(p));
+      if (matchingFolder) setActiveFolderPath(matchingFolder);
+
       const content = await readTextFile(filePath);
       const name = filePath.split(/[/\\]/).pop() || "file";
       const ext = name.split('.').pop() || "";
@@ -347,16 +436,16 @@ function App() {
             <button className="action-btn" onClick={handleRun}>
               <Play size={12} style={{marginRight: 6}} /> Run Code
             </button>
-            <button className="action-btn">
+            <button className="action-btn" onClick={handleDebug}>
               <Bug size={12} style={{marginRight: 6}} /> Debug
             </button>
-            <button className="action-btn">
+            <button className="action-btn" onClick={handleOptimize}>
               <Zap size={12} style={{marginRight: 6}} /> Optimize
             </button>
-            <button className="action-btn">
+            <button className="action-btn" onClick={handleTranslate}>
               <Languages size={12} style={{marginRight: 6}} /> Translate
             </button>
-            <button className="action-btn">
+            <button className="action-btn" onClick={handleDocumentation}>
               <BookOpen size={12} style={{marginRight: 6}} /> Documentation
             </button>
             <button 
@@ -419,14 +508,19 @@ function App() {
               {folderPaths.length > 0 ? (
                 <div className="file-tree root">
                   {folderPaths.map((path, idx) => (
-                    <FileTree 
+                    <div 
                       key={path} 
-                      path={path} 
-                      onFileClick={handleFileClick} 
-                      refreshTrigger={refreshTrigger} 
-                      isRoot={false}
-                      startsExpanded={idx === 0} 
-                    />
+                      className={`folder-root-container ${activeFolderPath === path ? 'active-folder' : ''}`}
+                      onClickCapture={() => setActiveFolderPath(path)}
+                    >
+                      <FileTree 
+                        path={path} 
+                        onFileClick={handleFileClick} 
+                        refreshTrigger={refreshTrigger} 
+                        isRoot={false}
+                        startsExpanded={idx === 0} 
+                      />
+                    </div>
                   ))}
                 </div>
               ) : (
