@@ -142,14 +142,13 @@ function App() {
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
-  const terminalRef = useRef<XTerm | null>(null);
   const streamBufferRef = useRef<string>("");
 
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
   };
 
-  const handleDiffEditorDidMount: OnMount = (editor) => {
+  const handleDiffEditorDidMount = (editor: any) => {
     diffEditorRef.current = editor as any;
   };
 
@@ -246,7 +245,7 @@ function App() {
       
       if (detectedLang !== activeTab?.lang) {
         setShowDiff(false);
-        createNewTab(detectedLang, cleaned);
+        createNewTab(detectedLang || 'python', cleaned);
       } else {
         setTabs(prevTabs => prevTabs.map(t => 
           t.id === activeTabIdRef.current ? { ...t, content: cleaned } : t
@@ -769,10 +768,10 @@ function App() {
                     {terminals.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 </div>
-                <Plus size={14} className="term-icon" onClick={createNewTerminal} title="New Terminal" />
+                <Plus size={14} className="term-icon" onClick={createNewTerminal} aria-label="New Terminal" />
                 <TerminalSquare size={14} className="term-icon" />
-                <Minus size={14} className="term-icon" onClick={deleteTerminal} title="Kill Terminal" />
-                {isTerminalVisible ? (<ChevronDown size={16} className="term-icon" onClick={() => setIsTerminalVisible(false)} title="Hide Panel" />) : (<ChevronUp size={16} className="term-icon" onClick={() => setIsTerminalVisible(true)} title="Show Panel" />)}
+                <Minus size={14} className="term-icon" onClick={deleteTerminal} aria-label="Kill Terminal" />
+                {isTerminalVisible ? (<ChevronDown size={16} className="term-icon" onClick={() => setIsTerminalVisible(false)} aria-label="Hide Panel" />) : (<ChevronUp size={16} className="term-icon" onClick={() => setIsTerminalVisible(true)} aria-label="Show Panel" />)}
               </div>
             </div>
             <div className="terminal-content" style={{ display: isTerminalVisible ? "" : "none" }}>
@@ -864,6 +863,10 @@ function App() {
 }
 
 export default App;
+
+
+
+
 
 
 

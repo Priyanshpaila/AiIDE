@@ -10,6 +10,7 @@ interface Props {
   isRoot?: boolean;
   refreshTrigger?: number;
   startsExpanded?: boolean;
+  onCloseFolder?: () => void;
 }
 
 function getFileIconInfo(filename: string) {
@@ -143,5 +144,6 @@ function FileTreeNode({ entry, parentPath, onFileClick, refreshTrigger }: { entr
     </div>
   );
 }
+
 
 
