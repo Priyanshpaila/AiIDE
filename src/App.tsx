@@ -8,6 +8,7 @@ import { useVoiceToCode, streamAIPrompt } from "./hooks/useVoiceToCode";
 import Bootstrap from "./Bootstrap";
 import TerminalComponent from "./components/Terminal";
 import FileTree from "./components/FileTree";
+import ProfilePage from "./components/ProfilePage";
 import * as monaco from "monaco-editor";
 
 // Configure Monaco to use the locally bundled version instead of the CDN
@@ -37,6 +38,14 @@ type Project = {
   folders: string[];
 };
 
+export type ActivityLogEntry = {
+  id: string;
+  type: 'code' | 'project' | 'system';
+  title: string;
+  desc: string;
+  timestamp: number;
+};
+
 function App() {
   const [isBootstrapped, setIsBootstrapped] = useState(false);
   useEffect(() => {
@@ -60,6 +69,82 @@ function App() {
       if (unlistenFn) unlistenFn();
     };
   }, []);
+  const [userName, setUserName] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_username");
+      if (saved) return saved;
+    } catch (e) {}
+    return "";
+  });
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [activeView, setActiveView] = useState<'ide' | 'profile'>('ide');
+
+  const [aiGenerations, setAiGenerations] = useState<number>(() => {
+    try {
+      return parseInt(localStorage.getItem("voiceide_ai_generations") || "0");
+    } catch (e) { return 0; }
+  });
+  
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_activity_log");
+      if (saved) return JSON.parse(saved);
+    } catch (e) { return []; }
+    return [];
+  });
+  
+  const [activityDays, setActivityDays] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_activity_days");
+      if (saved) return JSON.parse(saved);
+    } catch (e) { return {}; }
+    return {};
+  });
+
+  const logActivity = (type: 'code'|'project'|'system', title: string, desc: string) => {
+    const entry: ActivityLogEntry = { id: Date.now().toString(), type, title, desc, timestamp: Date.now() };
+    setActivityLog(prev => {
+      const updated = [entry, ...prev].slice(0, 50);
+      localStorage.setItem("voiceide_activity_log", JSON.stringify(updated));
+      return updated;
+    });
+    
+    // Update daily contribution
+    const today = new Date().toISOString().split('T')[0];
+    setActivityDays(prev => {
+      const count = (prev[today] || 0) + 1;
+      const updated = { ...prev, [today]: count };
+      localStorage.setItem("voiceide_activity_days", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const incrementGenerations = () => {
+    setAiGenerations(prev => {
+      const updated = prev + 1;
+      localStorage.setItem("voiceide_ai_generations", updated.toString());
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    if (isBootstrapped && !userName) {
+      setShowSetupModal(true);
+    }
+  }, [isBootstrapped, userName]);
+
+  const handleSaveInitialName = (name: string) => {
+    const finalName = name.trim() || "VoiceCoder";
+    setUserName(finalName);
+    localStorage.setItem("voiceide_username", finalName);
+    setShowSetupModal(false);
+  };
+  
+  const handleUpdateName = (name: string) => {
+    setUserName(name);
+    localStorage.setItem("voiceide_username", name);
+  };
+
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
       const saved = localStorage.getItem("voiceide_projects");
@@ -289,7 +374,7 @@ function App() {
       
       const cleaned = finalCode.replace(/```[a-zA-Z0-9+-]*\r?\n?/g, "").replace(/```/g, "");
       
-      if (detectedLang !== activeTab?.lang) {
+      if (!activeTabIdRef.current) {
         setShowDiff(false);
         createNewTab(detectedLang || 'python', cleaned);
       } else {
@@ -322,13 +407,21 @@ function App() {
 
   const { isRecording, status, toggleRecording } = useVoiceToCode(
     () => activeTab?.content || '',
-    handleAIGeneratedChunk
+    (code, isComplete, isStart) => {
+      if (isStart) {
+        logActivity('code', 'Voice Code', 'Generated code using Voice AI');
+        incrementGenerations();
+      }
+      handleAIGeneratedChunk(code, isComplete, isStart);
+    }
   );
 
   const handleDebug = async () => {
     if (!activeTab || !(activeTab?.content || '').trim()) return;
     setActiveBottomTab("output");
     appendOutput(`Starting AI Debug process for ${activeTab?.name || ''}...`);
+    logActivity('code', 'Generated Code', 'Used AI to debug code');
+    incrementGenerations();
     const sysPrompt = "You are an expert debugger. Fix any errors or logical bugs in the provided code. Output ONLY the raw corrected code wrapped in a markdown code block (e.g. ```python). Keep the same language. Ensure the output runs flawlessly.";
     const userPrompt = `Debug and fix the following code:\n\n${activeTab?.content || ''}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
@@ -338,6 +431,8 @@ function App() {
     if (!activeTab || !(activeTab?.content || '').trim()) return;
     setActiveBottomTab("output");
     appendOutput(`Starting AI Optimization process for ${activeTab?.name || ''}...`);
+    logActivity('code', 'Optimized Code', 'Used AI to optimize performance');
+    incrementGenerations();
     const sysPrompt = "You are an expert performance optimizer. Rewrite the provided code to be significantly more efficient (e.g., O(1) instead of O(n^2)) while maintaining the exact same logic and functionality. Output ONLY the raw optimized code wrapped in a markdown code block. Keep the same language.";
     const userPrompt = `Optimize the following code for better performance and time/space complexity:\n\n${activeTab?.content || ''}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
@@ -350,6 +445,8 @@ function App() {
     
     setActiveBottomTab("output");
     appendOutput(`Starting AI Translation to ${targetLang} for ${activeTab?.name || ''}...`);
+    logActivity('code', 'Translated Code', `Translated to ${targetLang}`);
+    incrementGenerations();
     const sysPrompt = `You are an expert code translator. Translate the provided code into ${targetLang} without changing the underlying logic or functionality. Use idiomatic patterns for ${targetLang}. Output ONLY the raw translated code wrapped in a markdown code block (e.g. \`\`\`${targetLang}).`;
     const userPrompt = `Translate the following code to ${targetLang}:\n\n${activeTab?.content || ''}`;
     await streamAIPrompt(sysPrompt, userPrompt, handleAIGeneratedChunk);
@@ -401,6 +498,8 @@ function App() {
       combinedCode = `\n\n--- File: ${activeTab?.name || ''} ---\n${activeTab?.content || ''}`;
     }
     
+    logActivity('code', 'Generated Documentation', 'Used AI to generate README.md');
+    incrementGenerations();
     const sysPrompt = "You are an expert technical writer. Analyze the provided project files and generate a clean, comprehensive README.md documentation explaining what the project is, its structure, and how it works. Output ONLY the raw markdown wrapped in a ```markdown block.";
     const userPrompt = `Generate documentation for this project based on these files:\n${combinedCode.substring(0, 15000)}`;
     
@@ -450,6 +549,7 @@ function App() {
     try {
       const selectedPath = await open({ directory: true, multiple: false });
       if (selectedPath && typeof selectedPath === 'string') {
+        logActivity('project', 'Opened Standalone Folder', 'Added standalone folder');
         setStandaloneFolders(prev => prev.includes(selectedPath) ? prev : [...prev, selectedPath]);
         setActiveFolderPath(selectedPath);
       }
@@ -484,12 +584,14 @@ function App() {
     setExpandedProjects(prev => ({ ...prev, [newProj.id]: true }));
     setNewProjectName("");
     setShowCreateProjectModal(false);
+    logActivity('project', 'Created Project', `Created new project: ${newProjectName.trim()}`);
   };
 
   const handleOpenFolder = async (projectId: string) => {
     try {
       const selectedPath = await open({ directory: true, multiple: false });
       if (selectedPath && typeof selectedPath === 'string') {
+        logActivity('project', 'Opened Folder', 'Added folder to workspace');
         setProjects(prev => prev.map(p => {
           if (p.id === projectId && !p.folders.includes(selectedPath)) {
             return { ...p, folders: [...p.folders, selectedPath] };
@@ -653,7 +755,25 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* TITLE BAR */}
+      {activeView === 'profile' ? (
+        <ProfilePage 
+          onBack={() => setActiveView('ide')}
+          userName={userName}
+          onUpdateName={handleUpdateName}
+          projectsCount={projects.length}
+          standaloneFoldersCount={standaloneFolders.length}
+          recentProjects={projects.slice(0, 5)}
+          aiGenerations={aiGenerations}
+          activityLog={activityLog}
+          activityDays={activityDays}
+          onOpenProject={(id) => {
+            setActiveView('ide');
+            handleOpenFolder(id);
+          }}
+        />
+      ) : (
+        <>
+          {/* TITLE BAR */}
       <header className="title-bar">
         <div className="window-controls">
           <div className="dot red"></div>
@@ -682,7 +802,9 @@ function App() {
           <button className="invite-btn">Invite</button>
           <div className="icon-btn"><VscBell size={14} /></div>
           <div className="icon-btn"><VscSettingsGear size={14} /></div>
-          <div className="avatar-btn">J</div>
+                    <div className="avatar-btn" onClick={() => setActiveView('profile')} style={{ cursor: 'pointer' }}>
+            {userName ? userName.substring(0, 2).toUpperCase() : 'VC'}
+          </div>
         </div>
       </header>
 
@@ -1080,6 +1202,29 @@ function App() {
           Spaces: 4 &nbsp;&nbsp; UTF-8 &nbsp;&nbsp; CRLF &nbsp;&nbsp; {activeTab?.lang || 'python'}
         </div>
       </footer>
+        {showSetupModal && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ textAlign: 'center', padding: '40px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '20px' }}>👋</div>
+              <h2>Welcome to VoiceIDE</h2>
+              <p style={{ color: '#888', marginBottom: '30px' }}>Let's get started. What should we call you?</p>
+              <input 
+                autoFocus
+                type="text" 
+                placeholder="Enter your name..."
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveInitialName(e.currentTarget.value); }}
+                style={{ width: '100%', padding: '12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '8px', fontSize: '16px', marginBottom: '20px' }}
+                onBlur={e => handleSaveInitialName(e.target.value)}
+              />
+              <button className="modal-btn primary" style={{ width: '100%', padding: '12px' }} onClick={(e) => {
+                const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                handleSaveInitialName(input.value);
+              }}>Get Started</button>
+            </div>
+          </div>
+        )}
+      </>
+      )}
     </div>
   );
 }
