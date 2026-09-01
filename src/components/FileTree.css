@@ -10,7 +10,7 @@
 }
 
 .file-tree-node {
-  margin-left: 12px;
+  margin-left: 16px;
 }
 
 .file-tree-children {
@@ -19,7 +19,7 @@
 }
 
 .file-tree-label, .file-tree-file {
-  padding: 4px 8px;
+  padding: 6px 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -31,7 +31,7 @@
 }
 
 .file-tree-file {
-  margin-left: 12px;
+  margin-left: 16px;
 }
 
 .icon {

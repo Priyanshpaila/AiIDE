@@ -1,4 +1,7 @@
-import { useRef, useState, useEffect } from "react";
+﻿import { useRef, useState, useEffect } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Command } from "@tauri-apps/plugin-shell";
+
 import Editor, { DiffEditor, OnMount, loader } from "@monaco-editor/react";
 import { useVoiceToCode, streamAIPrompt } from "./hooks/useVoiceToCode";
 import Bootstrap from "./Bootstrap";
@@ -13,10 +16,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { 
-  Play, Mic, FolderOpen, Settings, Bell, 
-  ChevronDown, ChevronUp, Search, Plus, TerminalSquare, 
-  Bug, Zap, Languages, BookOpen, Minus, X
-} from "lucide-react";
+  VscPlay, VscMic, VscFolderOpened, VscSettingsGear, VscBell, 
+  VscChevronDown, VscChevronUp, VscSearch, VscNewFile, VscTerminal, 
+  VscBug, VscLightbulb, VscSymbolString, VscBook, VscDash, VscClose
+} from "react-icons/vsc";
 import "./App.css";
 
 type Tab = {
@@ -27,15 +30,55 @@ type Tab = {
   lang: string;
 };
 
+type Project = {
+  id: string;
+  name: string;
+  folders: string[];
+};
+
 function App() {
   const [isBootstrapped, setIsBootstrapped] = useState(false);
-  const [folderPaths, setFolderPaths] = useState<string[]>(() => {
+  useEffect(() => {
+    let unlistenFn: any = null;
+    const setup = async () => {
+      unlistenFn = await getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault();
+        try {
+          Command.create("powershell", ["-Command", "Stop-Process -Name 'llama-server*' -Force -ErrorAction SilentlyContinue"]).spawn();
+          Command.create("powershell", ["-Command", "Stop-Process -Name 'whisper-server*' -Force -ErrorAction SilentlyContinue"]).spawn();
+        } catch (e) {}
+        
+        setTimeout(() => {
+            getCurrentWindow().destroy();
+        }, 100);
+      });
+    };
+    setup();
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+  const [projects, setProjects] = useState<Project[]>(() => {
     try {
-      const saved = localStorage.getItem("voiceide_folders");
+      const saved = localStorage.getItem("voiceide_projects");
       if (saved) return JSON.parse(saved);
+      const oldFolders = localStorage.getItem("voiceide_folders");
+      if (oldFolders) return [{ id: 'default-' + Date.now(), name: 'My Project', folders: JSON.parse(oldFolders) }];
     } catch (e) {}
     return [];
   });
+  const [standaloneFolders, setStandaloneFolders] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("voiceide_standalone");
+      if (saved) return JSON.parse(saved);
+      const oldFolders = localStorage.getItem("voiceide_folders");
+      if (oldFolders) return JSON.parse(oldFolders);
+    } catch (e) {}
+    return [];
+  });
+  const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [activeFolderPath, setActiveFolderPath] = useState<string | null>(() => {
     try {
       const saved = localStorage.getItem("voiceide_active_folder");
@@ -132,11 +175,12 @@ function App() {
   };
 
   useEffect(() => {
-    localStorage.setItem("voiceide_folders", JSON.stringify(folderPaths));
+    localStorage.setItem("voiceide_projects", JSON.stringify(projects));
+    localStorage.setItem("voiceide_standalone", JSON.stringify(standaloneFolders));
     localStorage.setItem("voiceide_tabs", JSON.stringify(tabs));
     localStorage.setItem("voiceide_active_tab", JSON.stringify(activeTabId));
     localStorage.setItem("voiceide_active_folder", JSON.stringify(activeFolderPath));
-  }, [folderPaths, tabs, activeTabId, activeFolderPath]);
+  }, [projects, standaloneFolders, tabs, activeTabId, activeFolderPath]);
   
   const activeTab = tabs.find(t => t.id === activeTabId) || (tabs.length > 0 ? tabs[0] : undefined);
 
@@ -190,8 +234,8 @@ function App() {
     
     setShowNewFileModal(false);
 
-    if (folderPaths.length > 0) {
-      let targetFolder = activeFolderPath || folderPaths[0];
+    if ((projects.some(p => p.folders.length > 0) || standaloneFolders.length > 0)) {
+      let targetFolder = activeFolderPath || standaloneFolders[0] || (projects.find(p => p.folders.length > 0)?.folders[0] || "");
 
       try {
         const { join } = await import("@tauri-apps/api/path");
@@ -310,7 +354,7 @@ function App() {
   };
 
   const handleDocumentation = async () => {
-    if (folderPaths.length === 0 && (!activeTab || !(activeTab?.content || '').trim())) {
+    if (projects.length === 0 && standaloneFolders.length === 0 && (!activeTab || !(activeTab?.content || '').trim())) {
       alert("Please open a folder or write some code to generate documentation.");
       return;
     }
@@ -323,7 +367,7 @@ function App() {
     }
     
     let combinedCode = "";
-    let targetFolder = folderPaths.length > 0 ? (activeFolderPath || folderPaths[0]) : null;
+    let targetFolder = (projects.some(p => p.folders.length > 0) || standaloneFolders.length > 0) ? (activeFolderPath || (projects.find(p => p.folders.length > 0)?.folders[0] || "")) : null;
     
     if (targetFolder) {
       try {
@@ -398,27 +442,110 @@ function App() {
     });
   };
 
-  const handleCloseFolder = (pathToClose: string) => { setFolderPaths(prev => { const filtered = prev.filter(p => p !== pathToClose); if (activeFolderPath === pathToClose) { setActiveFolderPath(filtered.length > 0 ? filtered[0] : null); } return filtered; }); };
-  const handleOpenFolder = async () => {
-    const selected = await open({ directory: true, multiple: true });
-    if (selected) {
-      const paths = Array.isArray(selected) ? selected : [selected];
-      setFolderPaths(prev => {
-        const newPaths = [...prev];
-        paths.forEach(p => {
-          if (!newPaths.includes(p)) newPaths.push(p);
-        });
-        if (!activeFolderPath && newPaths.length > 0) {
-          setActiveFolderPath(newPaths[0]);
-        }
-        return newPaths;
-      });
+
+
+  const handleOpenStandaloneFolder = async () => {
+    try {
+      const selectedPath = await open({ directory: true, multiple: false });
+      if (selectedPath && typeof selectedPath === 'string') {
+        setStandaloneFolders(prev => prev.includes(selectedPath) ? prev : [...prev, selectedPath]);
+        setActiveFolderPath(selectedPath);
+      }
+    } catch (err) {
+      console.error("Failed to open folder", err);
     }
+  };
+
+  const handleCloseStandaloneFolder = (folderToClose: string) => {
+    setStandaloneFolders(prev => prev.filter(p => p !== folderToClose));
+    if (activeFolderPath === folderToClose) setActiveFolderPath(null);
+  };
+
+  const handleStandalonePathChange = (oldPath: string, newPath: string) => {
+    setStandaloneFolders(prev => prev.map(p => p === oldPath ? newPath : p));
+    if (activeFolderPath === oldPath) setActiveFolderPath(newPath);
+    setTabs(prev => prev.map(t => {
+      if (t.path.startsWith(oldPath)) return { ...t, path: t.path.replace(oldPath, newPath) };
+      return t;
+    }));
+  };
+
+  const handleStandaloneDelete = (path: string) => {
+    setStandaloneFolders(prev => prev.filter(p => p !== path));
+    if (activeFolderPath === path) setActiveFolderPath(null);
+  };
+
+  const handleCreateProject = () => {
+    if (!newProjectName.trim()) return;
+    const newProj: Project = { id: 'proj-' + Date.now(), name: newProjectName.trim(), folders: [] };
+    setProjects(prev => [...prev, newProj]);
+    setExpandedProjects(prev => ({ ...prev, [newProj.id]: true }));
+    setNewProjectName("");
+    setShowCreateProjectModal(false);
+  };
+
+  const handleOpenFolder = async (projectId: string) => {
+    try {
+      const selectedPath = await open({ directory: true, multiple: false });
+      if (selectedPath && typeof selectedPath === 'string') {
+        setProjects(prev => prev.map(p => {
+          if (p.id === projectId && !p.folders.includes(selectedPath)) {
+            return { ...p, folders: [...p.folders, selectedPath] };
+          }
+          return p;
+        }));
+        setExpandedProjects(prev => ({ ...prev, [projectId]: true }));
+        setActiveFolderPath(selectedPath);
+      }
+    } catch (err) {
+      console.error("Failed to open folder dialog", err);
+    }
+  };
+
+  const handleCloseFolder = (projectId: string, folderToClose: string) => {
+    setProjects(prev => prev.map(p => {
+      if (p.id === projectId) {
+        return { ...p, folders: p.folders.filter(f => f !== folderToClose) };
+      }
+      return p;
+    }));
+    if (activeFolderPath === folderToClose) {
+      setActiveFolderPath(null);
+    }
+  };
+
+  const handleProjectPathChange = (oldPath: string, newPath: string) => {
+    setProjects(prev => prev.map(p => ({
+      ...p,
+      folders: p.folders.map(f => f === oldPath ? newPath : f)
+    })));
+    if (activeFolderPath === oldPath) setActiveFolderPath(newPath);
+    setTabs(prev => prev.map(t => {
+      if (t.path.startsWith(oldPath)) {
+        return { ...t, path: t.path.replace(oldPath, newPath) };
+      }
+      return t;
+    }));
+  };
+
+  const handleProjectDelete = (path: string) => {
+    setProjects(prev => prev.map(p => ({
+      ...p,
+      folders: p.folders.filter(f => f !== path)
+    })));
+    if (activeFolderPath === path) setActiveFolderPath(null);
+    setTabs(prev => prev.map(t => t)); // We probably want to close tabs, but let's keep it simple
   };
 
   const handleFileClick = async (filePath: string) => {
     try {
-      const matchingFolder = folderPaths.find(p => filePath.startsWith(p));
+      let matchingFolder = standaloneFolders.find(f => filePath.startsWith(f));
+      if (!matchingFolder) {
+        for (const p of projects) {
+          const found = p.folders.find(f => filePath.startsWith(f));
+          if (found) matchingFolder = found;
+        }
+      }
       if (matchingFolder) setActiveFolderPath(matchingFolder);
 
       const content = await readTextFile(filePath);
@@ -530,7 +657,7 @@ function App() {
           <div className="dot red"></div>
           <div className="dot yellow"></div>
           <div className="dot green"></div>
-          <Plus size={14} className="window-add" onClick={openNewFileModal} />
+          <VscNewFile size={14} className="window-add" onClick={openNewFileModal} />
         </div>
         <div className="tabs-container">
           {tabs.map(tab => (
@@ -541,7 +668,7 @@ function App() {
             >
               <span className={`tab-icon ${tab.lang}`}></span>
               {tab.name}
-              <X size={12} className="tab-close" onClick={(e) => closeTab(tab.id, e)} />
+              <VscClose size={12} className="tab-close" onClick={(e) => closeTab(tab.id, e)} />
             </div>
           ))}
         </div>
@@ -551,8 +678,8 @@ function App() {
             <div className={`toggle-switch ${showDiff ? 'on' : 'off'}`}></div>
           </div>
           <button className="invite-btn">Invite</button>
-          <div className="icon-btn"><Bell size={14} /></div>
-          <div className="icon-btn"><Settings size={14} /></div>
+          <div className="icon-btn"><VscBell size={14} /></div>
+          <div className="icon-btn"><VscSettingsGear size={14} /></div>
           <div className="avatar-btn">J</div>
         </div>
       </header>
@@ -560,32 +687,32 @@ function App() {
       {/* TOOLBAR */}
       <div className="toolbar">
         <div className="toolbar-left">
-          <div className="home-btn" onClick={handleOpenFolder}>
-            <FolderOpen size={14} />
-            <ChevronDown size={12} style={{marginLeft: 4}} />
+          <div className="home-btn" onClick={() => setShowCreateProjectModal(true)}>
+            <VscFolderOpened size={14} />
+            <VscChevronDown size={12} style={{marginLeft: 4}} />
           </div>
           <div className="toolbar-actions">
             <button className="action-btn" onClick={handleRun}>
-              <Play size={14} className="action-icon" /> <span className="action-text">Run Code</span>
+              <VscPlay size={14} className="action-icon" /> <span className="action-text">Run Code</span>
             </button>
             <button className="action-btn" onClick={handleDebug}>
-              <Bug size={14} className="action-icon" /> <span className="action-text">Debug</span>
+              <VscBug size={14} className="action-icon" /> <span className="action-text">Debug</span>
             </button>
             <button className="action-btn" onClick={handleOptimize}>
-              <Zap size={14} className="action-icon" /> <span className="action-text">Optimize</span>
+              <VscLightbulb size={14} className="action-icon" /> <span className="action-text">Optimize</span>
             </button>
             <button className="action-btn" onClick={handleTranslate}>
-              <Languages size={14} className="action-icon" /> <span className="action-text">Translate</span>
+              <VscSymbolString size={14} className="action-icon" /> <span className="action-text">Translate</span>
             </button>
             <button className="action-btn" onClick={handleDocumentation}>
-              <BookOpen size={14} className="action-icon" /> <span className="action-text">Documentation</span>
+              <VscBook size={14} className="action-icon" /> <span className="action-text">Documentation</span>
             </button>
             <button 
               className={`action-btn record-action ${isRecording ? "recording" : ""}`}
               onClick={toggleRecording}
               disabled={status === "processing"}
             >
-              <Mic size={14} className="action-icon" /> 
+              <VscMic size={14} className="action-icon" /> 
               {status === "idle" ? "Generate Voice Code" : status === "recording" ? "Recording..." : "Processing..."}
             </button>
           </div>
@@ -596,14 +723,14 @@ function App() {
             value={activeTab?.lang || 'python'} 
             onChange={(e) => {
               const newLang = e.target.value;
-              const newExt = newLang === 'python' ? 'py' : newLang === 'javascript' ? 'js' : newLang === 'cpp' ? 'cpp' : newLang === 'c' ? 'c' : newLang;
+              const newExt = newLang === 'python' ? 'py' : newLang === 'javascript' ? 'js' :newLang === 'typescript' ? 'ts'  : newLang === 'cpp' ? 'cpp' : newLang === 'rust' ? 'rs' : newLang === 'c' ? 'c' : newLang;
               setTabs(tabs.map(t => {
                 if (t.id === activeTabId) {
-                  return {
-                    ...t, 
-                    lang: newLang,
-                    name: !t.path ? `scratch.${newExt}` : t.name
-                  };
+                    return {
+                      ...t, 
+                      lang: newLang,
+                      name: !t.path ? (t.name.includes('.') ? t.name.substring(0, t.name.lastIndexOf('.')) + '.' + newExt : t.name + '.' + newExt) : t.name
+                    };
                 }
                 return t;
               }));
@@ -627,41 +754,112 @@ function App() {
         <aside className="sidebar">
           <div className="sidebar-top">
             <button className="create-file-btn" onClick={openNewFileModal}>
-              <Plus size={14} style={{marginRight: 6}} /> Create new file
+              <VscNewFile size={14} style={{marginRight: 6}} /> Create new file
             </button>
-            <button className="search-btn"><Search size={14} /></button>
+            <button className="search-btn"><VscSearch size={14} /></button>
           </div>
           <div className="sidebar-section">
             <div className="section-header">
               <span>Explorer</span>
               <span className="dots">...</span>
             </div>
-            <div className="sidebar-tree">
-              {folderPaths.length > 0 ? (
-                <div className="file-tree root">
-                  {folderPaths.map((path, idx) => (
-                    <div 
-                      key={path} 
-                      className={`folder-root-container ${activeFolderPath === path ? 'active-folder' : ''}`}
-                      onClickCapture={() => setActiveFolderPath(path)}
-                    >
-                      <FileTree 
-                        path={path} 
-                        onCloseFolder={() => handleCloseFolder(path)}
-                        onFileClick={handleFileClick} 
-                        refreshTrigger={refreshTrigger} 
-                        isRoot={false}
-                        startsExpanded={idx === 0} 
-                      />
+                          <div className="sidebar-tree">
+                {(projects.length > 0 || standaloneFolders.length > 0) ? (
+                  <div className="projects-accordion">
+                    <div className="projects-accordion-header" style={{ padding: '4px 8px', fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', color: '#ccc', display: 'flex', alignItems: 'center' }}>
+                      <VscChevronDown size={14} style={{ marginRight: 4 }} /> PROJECTS
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-sidebar">No folder opened</div>
-              )}
+                    
+                    {standaloneFolders.map((path, idx) => (
+                        <div 
+                          key={path} 
+                          className={`folder-root-container ${activeFolderPath === path ? 'active-folder' : ''}`}
+                          onClickCapture={() => setActiveFolderPath(path)}
+                          style={{ paddingLeft: '8px', paddingBottom: '4px' }}
+                        >
+                        <FileTree 
+                          path={path} 
+                          onCloseFolder={() => handleCloseStandaloneFolder(path)}
+                          onPathChange={handleStandalonePathChange}
+                          onDelete={handleStandaloneDelete}
+                          onFileClick={handleFileClick} 
+                          refreshTrigger={refreshTrigger} 
+                          isRoot={false}
+                          startsExpanded={idx === 0 && projects.length === 0} 
+                        />
+                      </div>
+                    ))}
+                    
+                    {projects.map(proj => (
+                      <div key={proj.id} className="project-group">
+                        <div 
+                          className="project-header" 
+                          onClick={() => setExpandedProjects(prev => ({ ...prev, [proj.id]: !prev[proj.id] }))}
+                          style={{ padding: '6px 12px', display: 'flex', justifyContent: 'space-between', cursor: 'pointer', backgroundColor: expandedProjects[proj.id] ? '#2a2a2a' : 'transparent', fontWeight: 600, color: '#fff' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {expandedProjects[proj.id] ? <VscChevronDown size={14} /> : <VscChevronUp size={14} />}
+                            {proj.name}
+                          </div>
+                          <div className="project-actions" style={{ display: 'flex', gap: '4px' }}>
+                            <span onClick={(e) => { e.stopPropagation(); handleOpenFolder(proj.id); }} title="Add Folder" style={{ padding: '2px', opacity: 0.7 }}><VscNewFile size={14} /></span>
+                            <span onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (confirm('Remove project?')) setProjects(prev => prev.filter(p => p.id !== proj.id));
+                            }} title="Remove Project" style={{ padding: '2px', opacity: 0.7, color: '#f44' }}><VscClose size={14} /></span>
+                          </div>
+                        </div>
+                        
+                        {expandedProjects[proj.id] && (
+                          <div className="file-tree root" style={{ paddingLeft: '8px' }}>
+                            {proj.folders.length === 0 ? (
+                              <div style={{ padding: '10px', color: '#888', fontStyle: 'italic', fontSize: '12px', textAlign: 'center' }}>No folders added.</div>
+                            ) : (
+                              proj.folders.map((path, idx) => (
+                                <div 
+                                  key={path} 
+                                  className={`folder-root-container ${activeFolderPath === path ? 'active-folder' : ''}`}
+                                  onClickCapture={() => setActiveFolderPath(path)}
+                                >
+                                  <FileTree 
+                                    path={path} 
+                                    onCloseFolder={() => handleCloseFolder(proj.id, path)}
+                                    onPathChange={handleProjectPathChange}
+                                    onDelete={handleProjectDelete}
+                                    onFileClick={handleFileClick} 
+                                    refreshTrigger={refreshTrigger} 
+                                    isRoot={false}
+                                    startsExpanded={idx === 0} 
+                                  />
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    <div style={{ padding: '10px', display: 'flex', justifyContent: 'center' }}>
+                      <button className="welcome-btn" onClick={() => setShowCreateProjectModal(true)} style={{ padding: '6px 12px', fontSize: '12px', width: '90%', borderRadius: '4px', background: '#333', border: '1px dashed #555' }}>
+                        <VscNewFile size={14} /> Create Project
+                      </button>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="empty-sidebar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', gap: '15px' }}>
+                    <p style={{ color: '#888', textAlign: 'center', fontSize: '12px', lineHeight: '1.5' }}>No projects or folders open.</p>
+                    <button className="welcome-btn" onClick={() => setShowCreateProjectModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '12px', width: '140px', justifyContent: 'center', borderRadius: '6px' }}>
+                      <VscNewFile size={14} /> Create Project
+                    </button>
+                    <button className="welcome-btn" onClick={handleOpenStandaloneFolder} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', fontSize: '12px', width: '140px', justifyContent: 'center', borderRadius: '6px', background: 'transparent' }}>
+                      <VscFolderOpened size={14} /> Open Folder
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </aside>
+          </aside>
         
         {/* EDITOR & TERMINAL */}
         <div className="editor-terminal-split">
@@ -716,10 +914,10 @@ function App() {
                   <p className="welcome-subtitle">Advanced AI Coding Environment</p>
                   <div className="welcome-actions">
                     <button className="welcome-btn" onClick={openNewFileModal}>
-                      <Plus size={16} /> New File
+                      <VscNewFile size={16} /> New File
                     </button>
-                    <button className="welcome-btn" onClick={handleOpenFolder}>
-                      <FolderOpen size={16} /> Open Folder
+                    <button className="welcome-btn" onClick={() => setShowCreateProjectModal(true)}>
+                      <VscFolderOpened size={16} /> Open Folder
                     </button>
                   </div>
                 </div>
@@ -768,10 +966,10 @@ function App() {
                     {terminals.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 </div>
-                <Plus size={14} className="term-icon" onClick={createNewTerminal} aria-label="New Terminal" />
-                <TerminalSquare size={14} className="term-icon" />
-                <Minus size={14} className="term-icon" onClick={deleteTerminal} aria-label="Kill Terminal" />
-                {isTerminalVisible ? (<ChevronDown size={16} className="term-icon" onClick={() => setIsTerminalVisible(false)} aria-label="Hide Panel" />) : (<ChevronUp size={16} className="term-icon" onClick={() => setIsTerminalVisible(true)} aria-label="Show Panel" />)}
+                <VscNewFile size={14} className="term-icon" onClick={createNewTerminal} aria-label="New Terminal" />
+                <VscTerminal size={14} className="term-icon" />
+                <VscDash size={14} className="term-icon" onClick={deleteTerminal} aria-label="Kill Terminal" />
+                {isTerminalVisible ? (<VscChevronDown size={16} className="term-icon" onClick={() => setIsTerminalVisible(false)} aria-label="Hide Panel" />) : (<VscChevronUp size={16} className="term-icon" onClick={() => setIsTerminalVisible(true)} aria-label="Show Panel" />)}
               </div>
             </div>
             <div className="terminal-content" style={{ display: isTerminalVisible ? "" : "none" }}>
@@ -821,6 +1019,28 @@ function App() {
             </div>
           </div>
         </div>
+        {showCreateProjectModal && (
+          <div className="modal-overlay" onClick={() => setShowCreateProjectModal(false)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
+              <h3>Create New Project</h3>
+              <div className="form-group" style={{marginTop: '15px'}}>
+                <label style={{display: 'block', marginBottom: '5px', fontSize: '14px'}}>Project Name</label>
+                <input 
+                  type="text" 
+                  value={newProjectName} 
+                  onChange={e => setNewProjectName(e.target.value)} 
+                  autoFocus
+                  onKeyDown={e => { if (e.key === 'Enter') handleCreateProject(); }}
+                  style={{ width: '100%', padding: '8px', background: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}
+                />
+              </div>
+              <div style={{display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end'}}>
+                <button className="modal-btn cancel" onClick={() => setShowCreateProjectModal(false)}>Cancel</button>
+                <button className="modal-btn primary" onClick={handleCreateProject}>Create</button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {showNewFileModal && (
