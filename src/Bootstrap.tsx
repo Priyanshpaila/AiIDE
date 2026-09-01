@@ -66,7 +66,11 @@ export default function Bootstrap({ onBootstrapped }: Props) {
 
         llamaCmd.on('error', error => console.error('llama-server error:', error));
         llamaCmd.stdout.on('data', line => console.log('llama-server:', line));
-        llamaCmd.stderr.on('data', line => console.error('llama-server err:', line));
+        llamaCmd.stderr.on('data', line => console.log('[AI Engine]:', line));
+
+        whisperCmd.on('error', error => console.error('whisper-server error:', error));
+        whisperCmd.stdout.on('data', line => console.log('whisper-server:', line));
+        whisperCmd.stderr.on('data', line => console.log('[Audio Engine]:', line));
 
         whisperCmd.on('error', error => console.error('whisper-server error:', error));
         whisperCmd.stdout.on('data', line => console.log('whisper-server:', line));
@@ -74,6 +78,25 @@ export default function Bootstrap({ onBootstrapped }: Props) {
 
         await llamaCmd.spawn();
         await whisperCmd.spawn();
+
+        setStatus("Waiting for AI Engines to warm up...");
+        
+        // Ping servers until they are ready
+        const pingServer = async (port: number) => {
+            while (true) {
+                try {
+                    const res = await fetch(`http://127.0.0.1:${port}/health`);
+                    if (res.ok) break;
+                } catch (e) {}
+                await new Promise(r => setTimeout(r, 500));
+            }
+        };
+
+        // Wait for both to be healthy, timeout after 15 seconds
+        await Promise.race([
+            Promise.all([pingServer(8080), pingServer(8081)]),
+            new Promise(r => setTimeout(r, 15000))
+        ]);
 
         onBootstrapped();
       } catch (error) {

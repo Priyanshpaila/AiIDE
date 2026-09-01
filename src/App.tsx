@@ -1,6 +1,7 @@
-﻿import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Command } from "@tauri-apps/plugin-shell";
+import { exit } from "@tauri-apps/plugin-process";
 
 import Editor, { DiffEditor, OnMount, loader } from "@monaco-editor/react";
 import { useVoiceToCode, streamAIPrompt } from "./hooks/useVoiceToCode";
@@ -48,8 +49,9 @@ function App() {
           Command.create("powershell", ["-Command", "Stop-Process -Name 'whisper-server*' -Force -ErrorAction SilentlyContinue"]).spawn();
         } catch (e) {}
         
-        setTimeout(() => {
-            getCurrentWindow().destroy();
+        setTimeout(async () => {
+            if (unlistenFn) { unlistenFn(); }
+            await exit(0);
         }, 100);
       });
     };
